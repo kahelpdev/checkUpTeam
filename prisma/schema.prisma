@@ -1,0 +1,130 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Equipes do cardsFlow que o líder quer monitorar
+model TeamsConfig {
+  id          String   @id @default(uuid())
+  teamId      String   @unique @map("team_id")
+  teamName    String   @map("team_name")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  snapshots   ApiSnapshot[]
+  reprovas    ReprovaHistory[]
+
+  @@map("teams_config")
+}
+
+// Registry de endpoints do cardsFlow — novos endpoints sem código novo
+model ApiRegistry {
+  id          String   @id @default(uuid())
+  name        String
+  path        String
+  method      String   @default("GET")
+  params      Json?
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  lastChecked DateTime? @map("last_checked")
+  lastStatus  String?  @map("last_status")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  snapshots   ApiSnapshot[]
+
+  @@map("api_registry")
+}
+
+// Snapshots históricos de qualquer endpoint
+model ApiSnapshot {
+  id            String       @id @default(uuid())
+  apiRegistryId String       @map("api_registry_id")
+  teamConfigId  String?      @map("team_config_id")
+  payload       Json
+  capturedAt    DateTime     @default(now()) @map("captured_at")
+
+  apiRegistry   ApiRegistry  @relation(fields: [apiRegistryId], references: [id])
+  teamConfig    TeamsConfig? @relation(fields: [teamConfigId], references: [id])
+
+  @@index([apiRegistryId, capturedAt])
+  @@index([teamConfigId, capturedAt])
+  @@map("api_snapshots")
+}
+
+// Configurações dinâmicas do app (ex: FLOW_API_BASE_URL editável pelo painel)
+model AppConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_config")
+}
+
+// Usuários da plataforma CheckUp Team
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  role         String   @default("viewer") // admin | lider | viewer
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+// Histórico de reprovas por dev/período
+model ReprovaHistory {
+  id             String      @id @default(uuid())
+  teamConfigId   String      @map("team_config_id")
+  userId         String      @map("user_id")
+  userName       String      @map("user_name")
+  avatarUrl      String?     @map("avatar_url")
+  qaSubmissions  Int         @default(0) @map("qa_submissions")
+  qaApprovals    Int         @default(0) @map("qa_approvals")
+  qaRejections   Int         @default(0) @map("qa_rejections")
+  qaHitRate      Float?      @map("qa_hit_rate")
+  qaStatus       String?     @map("qa_status")
+  recordedAt     DateTime    @default(now()) @map("recorded_at")
+  periodStart    DateTime    @map("period_start")
+  periodEnd      DateTime    @map("period_end")
+
+  teamConfig     TeamsConfig @relation(fields: [teamConfigId], references: [id])
+
+  @@index([teamConfigId, recordedAt])
+  @@index([userId, recordedAt])
+  @@map("reprova_history")
+}
+
+model RelatorioDiario {
+  id                          String   @id @default(uuid())
+  tipoUsuario                 String   @map("tipo_usuario")
+  idColaborador               Int      @map("id_colaborador")
+  nome                        String
+  equipe                      String
+  dataDia                     DateTime @map("data_dia") @db.Date
+  comoSeSentiu                String   @map("como_se_sentiu")
+  atividadesRealizadas        String   @map("atividades_realizadas")
+  impedimentos                String   @map("impedimentos")
+  demandasPendenteColaborador String   @map("demandas_pendente_colaborador")
+  demandasPendenteLideranca   String   @map("demandas_pendente_lideranca")
+  entregasPlanejadas          String   @map("entregas_planejadas")
+  motivoNaoEntrega            String?  @map("motivo_nao_entrega")
+  horaExtra                   String   @map("hora_extra")
+  motivoHoraExtra             String?  @map("motivo_hora_extra")
+  tempoHoraExtra              Int?     @map("tempo_hora_extra")
+  horaExtraAprovada           String?  @map("hora_extra_aprovada")
+  createdAt                   DateTime @default(now()) @map("created_at")
+
+  @@index([equipe, dataDia])
+  @@index([idColaborador, dataDia])
+  @@index([dataDia])
+  @@map("relatorios_diarios")
+}

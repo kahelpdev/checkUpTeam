@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+:root {
+  /* ── Brand / Primary ── */
+  --primary:        #0066FF;
+  --primary-dim:    rgba(0, 102, 255, 0.08);
+  --primary-light:  rgba(0, 102, 255, 0.14);
+  --primary-text:   #0047B3;
+
+  /* ── Surfaces ── */
+  --bg:        #F5F6FA;
+  --surface:   #FFFFFF;
+  --surface-2: #F8FAFC;
+  --border:    #E2E8F0;
+
+  /* ── Text ── */
+  --text:      #0F172A;
+  --secondary: #334155;
+  --muted:     #64748B;
+
+  /* ── Semantic — success ── */
+  --success:      #10B981;
+  --success-dim:  rgba(16, 185, 129, 0.10);
+  --success-text: #065F46;
+
+  /* ── Semantic — warning ── */
+  --warning:      #F59E0B;
+  --warning-dim:  rgba(245, 158, 11, 0.10);
+  --warning-text: #92400E;
+
+  /* ── Semantic — danger ── */
+  --danger:      #EF4444;
+  --danger-dim:  rgba(239, 68, 68, 0.10);
+  --danger-text: #B91C1C;
+
+  /* ── Transitions ── */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+
+  /* ── Legacy aliases (backward compatibility) ── */
+  --navy:      var(--primary);
+  --navy-rail: #1E1E3A;
+  --navy-dim:  var(--primary-dim);
+  --navy-dim2: var(--primary-light);
+  --sage:      var(--success);
+  --sage-dim:  var(--success-dim);
+  --cream:     #F1F5F9;
+  --cream-dark:#E2E8F0;
+  --warn:      var(--warning);
+  --warn-dim:  var(--warning-dim);
+}
+
+@theme inline {
+  --font-sans: var(--font-hanken);
+  --font-mono: var(--font-geist-mono);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Interactive element states ── */
+
+a, button {
+  transition: opacity var(--transition-fast), background var(--transition-base),
+              color var(--transition-base), border-color var(--transition-base),
+              box-shadow var(--transition-base);
+}
+
+button:not(:disabled):hover {
+  opacity: 0.88;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ── Table row hover ── */
+
+tbody tr:hover {
+  background: rgba(0, 102, 255, 0.03);
+}
+
+/* ── Sidebar nav items (CSS hover — no JS needed) ── */
+
+.nav-item {
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.nav-item:hover:not(.active) {
+  background: rgba(0, 102, 255, 0.06) !important;
+  color: var(--primary) !important;
+}
+
+/* ── Skeleton shimmer ── */
+
+.skeleton {
+  background: linear-gradient(90deg, #E2E8F0 25%, #F5F6FA 50%, #E2E8F0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 6px;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Page entrance ── */
+
+main > * {
+  animation: fadeIn 0.2s ease both;
+}
+
+/* ── Scrollbar ── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+*::-webkit-scrollbar-thumb:hover { background: #CBD5E1; }
