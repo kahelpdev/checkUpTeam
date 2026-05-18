@@ -1,0 +1,142 @@
+[
+  {
+    "id": "sent-01",
+    "category": "sentimento",
+    "query": "quem está se sentindo sobrecarregado?",
+    "expectedById": null,
+    "notes": "Sobrecarga aparece em comoSeSentiu, atividadesRealizadas, motivoHoraExtra. Preencher 3-5 UUIDs reais em eval-set.local.json."
+  },
+  {
+    "id": "sent-02",
+    "category": "sentimento",
+    "query": "colaboradores motivados essa semana",
+    "expectedById": null,
+    "notes": "Sentimento positivo em comoSeSentiu. Filtrar por dataInicio/Fim se quiser restringir a uma semana."
+  },
+  {
+    "id": "sent-03",
+    "category": "sentimento",
+    "query": "quem está cansado ou exausto",
+    "expectedById": null,
+    "notes": "Pode bater em comoSeSentiu e em motivoHoraExtra. Recall@5 espera pegar pelo menos 1 de cada origem."
+  },
+  {
+    "id": "sent-04",
+    "category": "sentimento",
+    "query": "está alguém frustrado com o trabalho?",
+    "expectedById": null,
+    "notes": "Frustração tende a estar em comoSeSentiu + impedimentos."
+  },
+  {
+    "id": "sent-05",
+    "category": "sentimento",
+    "query": "como a equipe está se sentindo de modo geral",
+    "expectedById": null,
+    "notes": "Query genérica — top-5 deve trazer variedade de sentimentos. Adversarial leve."
+  },
+  {
+    "id": "imp-01",
+    "category": "impedimento",
+    "query": "problemas com integração de API",
+    "expectedById": null,
+    "notes": "Impedimentos técnicos. Pode bater em impedimentos e atividadesRealizadas."
+  },
+  {
+    "id": "imp-02",
+    "category": "impedimento",
+    "query": "bloqueios de produto que travaram entrega",
+    "expectedById": null,
+    "notes": "Combina impedimentos + motivoNaoEntrega."
+  },
+  {
+    "id": "imp-03",
+    "category": "impedimento",
+    "query": "dependência de outras equipes parou alguém",
+    "expectedById": null,
+    "notes": "Impedimentos que mencionam outra equipe ou pessoa."
+  },
+  {
+    "id": "imp-04",
+    "category": "impedimento",
+    "query": "ambiente de desenvolvimento quebrado",
+    "expectedById": null,
+    "notes": "Impedimentos técnicos de infra/DX."
+  },
+  {
+    "id": "imp-05",
+    "category": "impedimento",
+    "query": "esperando aprovação de alguém para seguir",
+    "expectedById": null,
+    "notes": "Pode bater em demandasPendenteLideranca também."
+  },
+  {
+    "id": "dem-01",
+    "category": "demanda",
+    "query": "pendências da liderança que ainda não foram resolvidas",
+    "expectedById": null,
+    "notes": "demandasPendenteLideranca é o campo principal."
+  },
+  {
+    "id": "dem-02",
+    "category": "demanda",
+    "query": "o que cada colaborador está esperando do líder",
+    "expectedById": null,
+    "notes": "demandasPendenteLideranca agregado. Top-5 deve trazer variedade."
+  },
+  {
+    "id": "dem-03",
+    "category": "demanda",
+    "query": "demandas que o time tem mas líder não atendeu",
+    "expectedById": null,
+    "notes": "Variação semântica da dem-01."
+  },
+  {
+    "id": "dem-04",
+    "category": "demanda",
+    "query": "entregas planejadas para semana que vem",
+    "expectedById": null,
+    "notes": "entregasPlanejadas. Sensível à data — filtrar."
+  },
+  {
+    "id": "eqp-01",
+    "category": "equipe",
+    "query": "como está a equipe de desenvolvimento",
+    "expectedById": null,
+    "notes": "Filtrar por equipe='Desenvolvimento' ou equivalente. Top-5 deve vir só dessa equipe."
+  },
+  {
+    "id": "eqp-02",
+    "category": "equipe",
+    "query": "relatórios da equipe de design",
+    "expectedById": null,
+    "notes": "Filtrar por equipe correspondente. Ajustar nome real ao executar."
+  },
+  {
+    "id": "eqp-03",
+    "category": "equipe",
+    "query": "ranking de impedimentos por equipe na última semana",
+    "expectedById": null,
+    "notes": "Query analítica. Síntese Gemini precisa agregar — provável que dê uma resposta com tabela."
+  },
+  {
+    "id": "adv-01",
+    "category": "adversarial",
+    "query": "qual a cor preferida do gerente?",
+    "expectedById": null,
+    "notes": "Sem match esperado. Resposta correta = 'não há informação nos relatórios'. Cobertura de fallback."
+  },
+  {
+    "id": "adv-02",
+    "category": "adversarial",
+    "query": "who is overworked this week?",
+    "expectedById": null,
+    "notes": "Query em inglês. Gemini ainda deve retornar resultados (embeddings são multilingues). Resposta em português pelo prompt."
+  },
+  {
+    "id": "adv-03",
+    "category": "adversarial",
+    "query": "   ",
+    "expectedById": null,
+    "notes": "Query só whitespace. Endpoint deve retornar 400. Teste valida o erro, não o retrieval."
+  }
+]
