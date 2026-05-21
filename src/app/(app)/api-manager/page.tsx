@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { CheckCircle, XCircle, RefreshCw, Plus, Link, Save, Users } from "lucide-react";
+import { CheckCircle, XCircle, RefreshCw, Plus, Link, Save, Users, ListChecks, X as XIcon } from "lucide-react";
 
 interface ApiEntry {
   id: string;
@@ -44,6 +44,14 @@ export default function ApiManagerPage() {
   const [savingUrl, setSavingUrl] = useState(false);
   const [urlSaved, setUrlSaved] = useState(false);
 
+  const [stages, setStages] = useState<string[]>([]);
+  const [stagesSource, setStagesSource] = useState<"database" | "default" | "">("");
+  const [stagesUpdatedAt, setStagesUpdatedAt] = useState<string | null>(null);
+  const [newStageInput, setNewStageInput] = useState("");
+  const [savingStages, setSavingStages] = useState(false);
+  const [stagesSaved, setStagesSaved] = useState(false);
+  const [stagesError, setStagesError] = useState("");
+
   const fetchApis = () => {
     setLoading(true);
     fetch("/api/api-registry").then((r) => r.json()).then((data) => setApis(data as ApiEntry[])).finally(() => setLoading(false));
@@ -58,6 +66,42 @@ export default function ApiManagerPage() {
     setTimeout(() => setUrlSaved(false), 3000);
     fetchFlowUrl();
   };
+  const fetchStages = () => {
+    fetch("/api/config/devbi-stages")
+      .then((r) => r.json())
+      .then((data: { stages: string[]; source: "database" | "default"; updatedAt: string | null }) => {
+        setStages(data.stages);
+        setStagesSource(data.source);
+        setStagesUpdatedAt(data.updatedAt);
+      });
+  };
+  const addStage = () => {
+    const v = newStageInput.trim();
+    if (!v || stages.includes(v)) { setNewStageInput(""); return; }
+    setStages((s) => [...s, v]);
+    setNewStageInput("");
+  };
+  const removeStage = (s: string) => setStages((cur) => cur.filter((x) => x !== s));
+  const saveStages = async () => {
+    setStagesError("");
+    if (stages.length === 0) { setStagesError("Adicione ao menos 1 stage."); return; }
+    setSavingStages(true);
+    const res = await fetch("/api/config/devbi-stages", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stages }),
+    });
+    setSavingStages(false);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setStagesError(body.error ?? "Falha ao salvar");
+      return;
+    }
+    setStagesSaved(true);
+    setTimeout(() => setStagesSaved(false), 3000);
+    fetchStages();
+  };
+
   const fetchTeams = () => { fetch("/api/teams").then((r) => r.json()).then((data) => setTeams(data)); };
   const toggleTeam = async (id: string, isActive: boolean) => {
     setTogglingTeam(id);
@@ -65,7 +109,7 @@ export default function ApiManagerPage() {
     fetchTeams(); setTogglingTeam(null);
   };
 
-  useEffect(() => { fetchApis(); fetchFlowUrl(); fetchTeams(); }, []);
+  useEffect(() => { fetchApis(); fetchFlowUrl(); fetchTeams(); fetchStages(); }, []);
 
   const pingApi = async (id: string) => {
     setPinging(id);
@@ -129,6 +173,81 @@ export default function ApiManagerPage() {
             {flowUrl || "—"}
           </p>
         )}
+      </div>
+
+      {/* Stages 'Em Execução' do DevBI */}
+      <div style={card}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <ListChecks size={14} color="var(--sage)" />
+          <p style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)" }}>Stages &apos;Em Execução&apos; do DevBI</p>
+          {stagesSource && (
+            <span style={{
+              fontSize: 10, padding: "1px 8px", borderRadius: 5, fontWeight: 600,
+              background: stagesSource === "database" ? "rgba(120,191,165,0.14)" : "rgba(138,143,175,0.12)",
+              color: stagesSource === "database" ? "#2E8A6E" : "var(--muted)",
+            }}>
+              {stagesSource === "database" ? "configurado no painel" : "usando default"}
+            </span>
+          )}
+          {stagesSaved && <span style={{ fontSize: 11, color: "#2E8A6E", fontWeight: 600 }}>Salvo!</span>}
+        </div>
+        <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
+          Quais stages do CardsFlow contam como &quot;em execução&quot; na seção <strong>Em Execução Agora</strong> do DevBI.
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 10 }}>
+          {stages.map((s) => (
+            <span key={s} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: 12, fontWeight: 600,
+              background: "rgba(120,191,165,0.14)", color: "#2E8A6E",
+              border: "1px solid rgba(120,191,165,0.3)",
+              borderRadius: 16, padding: "4px 10px",
+            }}>
+              {s}
+              <button
+                onClick={() => removeStage(s)}
+                aria-label={`Remover ${s}`}
+                style={{ background: "none", border: "none", color: "#2E8A6E", cursor: "pointer", padding: 0, display: "flex" }}
+              >
+                <XIcon size={11} />
+              </button>
+            </span>
+          ))}
+          <input
+            value={newStageInput}
+            onChange={(e) => setNewStageInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addStage(); } }}
+            placeholder="+ adicionar stage"
+            style={{
+              border: "1px dashed var(--border)", borderRadius: 16, padding: "4px 12px",
+              fontSize: 12, outline: "none", background: "transparent", color: "var(--text)",
+              minWidth: 140,
+            }}
+          />
+        </div>
+        {stagesError && (
+          <p style={{ fontSize: 12, color: "var(--danger,#DC2626)", marginBottom: 8 }}>{stagesError}</p>
+        )}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ fontSize: 11, color: "var(--muted)" }}>
+            Source: {stagesSource || "—"}
+            {stagesUpdatedAt && ` · Última atualização: ${new Date(stagesUpdatedAt).toLocaleString("pt-BR")}`}
+          </span>
+          <button
+            onClick={saveStages}
+            disabled={savingStages}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              fontSize: 13, padding: "6px 16px",
+              background: "var(--navy)", color: "#fff",
+              borderRadius: 8, border: "none",
+              cursor: savingStages ? "not-allowed" : "pointer", fontWeight: 600,
+              opacity: savingStages ? 0.65 : 1,
+            }}
+          >
+            <Save size={13} /> {savingStages ? "Salvando..." : "Salvar"}
+          </button>
+        </div>
       </div>
 
       {/* Equipes monitoradas */}

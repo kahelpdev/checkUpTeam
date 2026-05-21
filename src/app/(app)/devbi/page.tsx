@@ -5,7 +5,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   BarChart, Bar,
 } from "recharts";
-import { RefreshCw, TrendingUp, TrendingDown, Trophy, Zap, AlertTriangle, Star, Clock, Users, X } from "lucide-react";
+import { RefreshCw, TrendingUp, TrendingDown, Trophy, Zap, AlertTriangle, Star, Clock, Users, X, Coffee } from "lucide-react";
 import { format, subDays, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -31,6 +31,7 @@ interface DevBIData {
   kpis: KpiData;
   rankings: RankingEntry[];
   currentTasks: CurrentTask[];
+  executionStages: string[];
   workload: WorkloadEntry[];
   demandChart: DemandEntry[];
   weeklyChangePct: number;
@@ -387,14 +388,22 @@ export default function DevBIDashboard() {
       {data?.currentTasks && filteredCurrentTasks.length > 0 && (
         <div>
           <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginBottom: 12 }}>
-            Em Execução Agora — {filteredCurrentTasks.filter((t) => t.eventId).length} membros ativos
-            {hasActiveFilter && <span style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)", marginLeft: 6 }}>(filtrado)</span>}
+            Em Execução Agora — {filteredCurrentTasks.length} em execução
+            {data.executionStages && data.executionStages.length > 0 && (
+              <span
+                title="Configurar em API Manager"
+                style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)", marginLeft: 6 }}
+              >
+                (filtrado por: {data.executionStages.join(", ")})
+              </span>
+            )}
+            {hasActiveFilter && <span style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)", marginLeft: 6 }}>(filtros adicionais ativos)</span>}
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
             {filteredCurrentTasks.map((t) => (
               <div key={t.userId} style={{
                 ...card, padding: 16,
-                borderLeft: `3px solid ${t.eventId ? priorityColor(t.priority) : "var(--border)"}`,
+                borderLeft: `3px solid ${priorityColor(t.priority)}`,
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                   <Avatar name={t.userName} url={t.avatarUrl} />
@@ -413,28 +422,25 @@ export default function DevBIDashboard() {
                     </span>
                   )}
                 </div>
-                {t.eventId ? (
-                  <>
-                    <p style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {t.eventTitle ?? "—"}
-                    </p>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: 10, color: "var(--muted)", background: "var(--surface-2)", padding: "2px 8px", borderRadius: 20, border: "1px solid var(--border)" }}>
-                        {t.currentStage ?? "—"}
-                      </span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--muted)" }}>
-                        <Clock size={10} />
-                        <span>{formatBusinessMinutes(t.businessMinutesInStage)}</span>
-                      </div>
-                    </div>
-                    {t.projectName && (
-                      <p style={{ fontSize: 10, color: "var(--muted)", marginTop: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        📁 {t.projectName}
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <p style={{ fontSize: 11, color: "var(--muted)", fontStyle: "italic" }}>Sem tarefa ativa no momento</p>
+                <p style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {t.eventTitle ?? "—"}
+                </p>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{
+                    fontSize: 10, color: "var(--primary)", background: "var(--primary-dim)",
+                    padding: "2px 8px", borderRadius: 20, border: "1px solid var(--primary)",
+                  }}>
+                    {t.currentStage ?? "—"}
+                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--muted)" }}>
+                    <Clock size={10} />
+                    <span>{formatBusinessMinutes(t.businessMinutesInStage)}</span>
+                  </div>
+                </div>
+                {t.projectName && (
+                  <p style={{ fontSize: 10, color: "var(--muted)", marginTop: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    📁 {t.projectName}
+                  </p>
                 )}
               </div>
             ))}
@@ -442,7 +448,32 @@ export default function DevBIDashboard() {
         </div>
       )}
 
-      {data?.currentTasks && filteredCurrentTasks.length === 0 && hasActiveFilter && (
+      {/* Empty: server retornou vazio (ninguém em execução) */}
+      {data?.currentTasks && data.currentTasks.length === 0 && !hasActiveFilter && !loading && !error && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            textAlign: "center", padding: "32px 24px",
+            color: "var(--muted)", fontSize: 13,
+            background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+          }}
+        >
+          <Coffee size={20} color="var(--muted)" />
+          <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+            Ninguém está em execução no momento
+          </p>
+          {data.executionStages && data.executionStages.length > 0 && (
+            <p style={{ fontSize: 11, color: "var(--muted)" }}>
+              Stages monitoradas: {data.executionStages.join(", ")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Empty: tem dados mas filtros client zeraram */}
+      {data?.currentTasks && data.currentTasks.length > 0 && filteredCurrentTasks.length === 0 && hasActiveFilter && (
         <div style={{ textAlign: "center", padding: "24px", color: "var(--muted)", fontSize: 13, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12 }}>
           Nenhuma tarefa encontrada para os filtros selecionados.
         </div>
