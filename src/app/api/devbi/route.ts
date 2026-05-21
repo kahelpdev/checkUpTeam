@@ -205,7 +205,15 @@ export async function GET(req: NextRequest) {
 
   const executionStages = await getDevbiExecutionStages();
   const executionStagesSet = new Set(executionStages);
-  const filteredCurrentTasks = parseCurrentTasks(currentTasksRaw).filter(
+  const allCurrentTasks = parseCurrentTasks(currentTasksRaw);
+  const availableStages = [
+    ...new Set(
+      allCurrentTasks
+        .map((t) => t.currentStage)
+        .filter((s): s is string => s !== null && s !== "")
+    ),
+  ].sort();
+  const filteredCurrentTasks = allCurrentTasks.filter(
     (t) => t.eventId !== null && t.currentStage !== null && executionStagesSet.has(t.currentStage)
   );
 
@@ -214,6 +222,7 @@ export async function GET(req: NextRequest) {
     rankings:        parseRankings(rankingsRaw),
     currentTasks:    filteredCurrentTasks,
     executionStages,
+    availableStages,
     workload:        parseWorkload(workloadRaw),
     demandChart:     parsedChart.slice(-14),
     weeklyChangePct: calcWeeklyChange(parsedChart),
