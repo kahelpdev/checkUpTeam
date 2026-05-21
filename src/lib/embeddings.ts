@@ -76,10 +76,21 @@ async function embed(text: string, taskType: TaskType): Promise<number[]> {
     })
   );
   const values = result.embedding?.values;
-  if (!values || values.length !== EMBEDDING_DIM) {
-    throw new Error(`[embeddings] Dimensão inesperada: esperado ${EMBEDDING_DIM}, recebido ${values?.length ?? 0}`);
+  if (!values || values.length === 0) {
+    throw new Error("[embeddings] resposta sem values");
   }
-  return values;
+  // gemini-embedding-001 retorna 3072 dim por default. SDK 0.24 nao expoe
+  // outputDimensionality, entao truncamos para EMBEDDING_DIM. Isso e seguro
+  // porque o modelo usa Matryoshka Representation Learning — os primeiros K
+  // elementos sao um embedding valido por construcao.
+  if (values.length < EMBEDDING_DIM) {
+    throw new Error(`[embeddings] dim ${values.length} < ${EMBEDDING_DIM} (modelo retornou menos que o esperado)`);
+  }
+  const truncated = values.slice(0, EMBEDDING_DIM);
+  // Re-normaliza (L2) — apos truncamento MRL, magnitude muda; cosine distance
+  // e robusto, mas mantemos vetores unitarios por convencao do pgvector.
+  const norm = Math.sqrt(truncated.reduce((s, v) => s + v * v, 0));
+  return norm > 0 ? truncated.map((v) => v / norm) : truncated;
 }
 
 export function embedDocument(text: string): Promise<number[]> {
