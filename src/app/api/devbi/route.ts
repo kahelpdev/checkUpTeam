@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { CardflowService } from "@/services/cardflow";
+import { getDevbiExecutionStages } from "@/lib/devbi-config";
 import { format, subDays, parseISO } from "date-fns";
 
 const PATHS = [
@@ -202,10 +203,17 @@ export async function GET(req: NextRequest) {
     ? (results.every((r) => r.status === "rejected") ? "cache" : "mixed")
     : "live";
 
+  const executionStages = await getDevbiExecutionStages();
+  const executionStagesSet = new Set(executionStages);
+  const filteredCurrentTasks = parseCurrentTasks(currentTasksRaw).filter(
+    (t) => t.eventId !== null && t.currentStage !== null && executionStagesSet.has(t.currentStage)
+  );
+
   const payload = {
     kpis:            parseKpis(kpisRaw),
     rankings:        parseRankings(rankingsRaw),
-    currentTasks:    parseCurrentTasks(currentTasksRaw),
+    currentTasks:    filteredCurrentTasks,
+    executionStages,
     workload:        parseWorkload(workloadRaw),
     demandChart:     parsedChart.slice(-14),
     weeklyChangePct: calcWeeklyChange(parsedChart),
