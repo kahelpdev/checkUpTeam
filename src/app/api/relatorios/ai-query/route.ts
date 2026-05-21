@@ -1,6 +1,12 @@
+// @deprecated use /api/relatorios/rag-query (busca semântica via pgvector).
+// Este endpoint continua respondendo durante a transição, mas adiciona o header
+// `X-Deprecated` em toda response. Será removido em release futuro.
+
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getGeminiModel } from "@/lib/gemini";
+
+const DEPRECATION_HEADER = { "X-Deprecated": "use /api/relatorios/rag-query" };
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -79,10 +85,10 @@ Instruções:
     const geminiModel = getGeminiModel(model);
     const result = await geminiModel.generateContent(prompt);
     const answer = result.response.text();
-    return NextResponse.json({ answer });
+    return NextResponse.json({ answer }, { headers: DEPRECATION_HEADER });
   } catch (e) {
     console.error("Gemini error:", e);
     const message = e instanceof Error ? e.message : "Erro ao consultar IA";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500, headers: DEPRECATION_HEADER });
   }
 }

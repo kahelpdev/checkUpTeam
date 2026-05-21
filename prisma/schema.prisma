@@ -104,24 +104,31 @@ model ReprovaHistory {
 }
 
 model RelatorioDiario {
-  id                          String   @id @default(uuid())
-  tipoUsuario                 String   @map("tipo_usuario")
-  idColaborador               Int      @map("id_colaborador")
+  id                          String                          @id @default(uuid())
+  tipoUsuario                 String                          @map("tipo_usuario")
+  idColaborador               Int                             @map("id_colaborador")
   nome                        String
   equipe                      String
-  dataDia                     DateTime @map("data_dia") @db.Date
-  comoSeSentiu                String   @map("como_se_sentiu")
-  atividadesRealizadas        String   @map("atividades_realizadas")
-  impedimentos                String   @map("impedimentos")
-  demandasPendenteColaborador String   @map("demandas_pendente_colaborador")
-  demandasPendenteLideranca   String   @map("demandas_pendente_lideranca")
-  entregasPlanejadas          String   @map("entregas_planejadas")
-  motivoNaoEntrega            String?  @map("motivo_nao_entrega")
-  horaExtra                   String   @map("hora_extra")
-  motivoHoraExtra             String?  @map("motivo_hora_extra")
-  tempoHoraExtra              Int?     @map("tempo_hora_extra")
-  horaExtraAprovada           String?  @map("hora_extra_aprovada")
-  createdAt                   DateTime @default(now()) @map("created_at")
+  dataDia                     DateTime                        @map("data_dia") @db.Date
+  comoSeSentiu                String                          @map("como_se_sentiu")
+  atividadesRealizadas        String                          @map("atividades_realizadas")
+  impedimentos                String                          @map("impedimentos")
+  demandasPendenteColaborador String                          @map("demandas_pendente_colaborador")
+  demandasPendenteLideranca   String                          @map("demandas_pendente_lideranca")
+  entregasPlanejadas          String                          @map("entregas_planejadas")
+  motivoNaoEntrega            String?                         @map("motivo_nao_entrega")
+  horaExtra                   String                          @map("hora_extra")
+  motivoHoraExtra             String?                         @map("motivo_hora_extra")
+  tempoHoraExtra              Int?                            @map("tempo_hora_extra")
+  horaExtraAprovada           String?                         @map("hora_extra_aprovada")
+  createdAt                   DateTime                        @default(now()) @map("created_at")
+
+  // pgvector: Prisma 7.8 não tipa vector — colunas marcadas como Unsupported
+  // para evitar drift detectado pelo `prisma migrate diff`. Acessadas via
+  // $queryRaw / $executeRaw em src/lib/embeddings.ts.
+  embedding                   Unsupported("vector(768)")?
+  embeddingUpdatedAt          DateTime?                       @map("embedding_updated_at")
+  embeddingModel              String?                         @map("embedding_model") @db.VarChar(64)
 
   @@index([equipe, dataDia])
   @@index([idColaborador, dataDia])

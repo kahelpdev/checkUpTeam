@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "backfill:embeddings": "tsx scripts/backfill-embeddings.ts",
+    "backfill:embeddings:dry": "tsx scripts/backfill-embeddings.ts --dry-run --limit=10",
+    "test:rag": "tsx tests/rag/recall.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

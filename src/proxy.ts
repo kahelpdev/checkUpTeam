@@ -3,6 +3,15 @@ import { verifyToken, COOKIE_NAME } from "@/lib/jwt";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout"];
 
+// Endpoints chamados por cron/n8n externos que usam autenticação própria
+// (header X-Backfill-Secret, etc.) ou são intencionalmente abertos.
+const API_PUBLIC_PATHS = [
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/embeddings/backfill",
+  "/api/ingest",
+];
+
 const ADMIN_ONLY_PATHS = ["/users"];
 const LIDER_ONLY_PATHS = ["/api-manager", "/reprova"];
 
@@ -18,6 +27,14 @@ export async function proxy(req: NextRequest) {
   }
 
   if (pathname.startsWith("/api/")) {
+    if (API_PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+      return NextResponse.next();
+    }
+    const token = req.cookies.get(COOKIE_NAME)?.value;
+    const payload = token ? await verifyToken(token) : null;
+    if (!payload) {
+      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    }
     return NextResponse.next();
   }
 

@@ -43,3 +43,7 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# RAG eval local overrides (contém UUIDs reais — fora do repo)
+/tests/rag/eval-set.local.json
+/failed-ids-*.log

@@ -1,0 +1,11 @@
+{
+  "_comment": "Template para tests/rag/eval-set.local.json (gitignored). Copie este arquivo, renomeie removendo '.example', e preencha expectedById com 3-5 UUIDs REAIS para cada query verificável. Mínimo de 10 das 17 não-adversariais devem estar preenchidas para o veredito Recall@5 ter peso. As 3 adversariais (adv-*) NÃO precisam de expectedById — são testes de fallback.",
+  "_howToFind": "Para cada query, rode: SELECT id, equipe, nome, data_dia, como_se_sentiu FROM relatorios_diarios ORDER BY data_dia DESC LIMIT 100; e marque manualmente quais 3-5 IDs deveriam estar no top-5 da busca.",
+  "sent-01": ["uuid-1", "uuid-2", "uuid-3"],
+  "sent-02": ["uuid-4", "uuid-5"],
+  "sent-03": ["uuid-6", "uuid-7", "uuid-8"],
+  "imp-01": ["uuid-9", "uuid-10", "uuid-11"],
+  "imp-02": ["uuid-12", "uuid-13"],
+  "dem-01": ["uuid-14", "uuid-15", "uuid-16"],
+  "eqp-01": ["uuid-17", "uuid-18", "uuid-19", "uuid-20"]
+}

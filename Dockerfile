@@ -10,6 +10,12 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Placeholders apenas em build-time. Valores reais sao injetados em runtime
+# via `docker run -e ...`. Necessarios porque o codigo nao tem mais fallbacks
+# inseguros (saneamento de seguranca).
+ENV DATABASE_URL="postgresql://buildtime-placeholder@localhost:5432/buildtime"
+ENV AUTH_SECRET="buildtime-placeholder-not-a-real-secret"
+ENV GEMINI_API_KEY="buildtime-placeholder"
 RUN npx prisma generate
 RUN npm run build
 
