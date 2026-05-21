@@ -5,7 +5,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   BarChart, Bar,
 } from "recharts";
-import { RefreshCw, TrendingUp, TrendingDown, Trophy, Zap, AlertTriangle, Star, Clock, Users, FolderOpen, X } from "lucide-react";
+import { RefreshCw, TrendingUp, TrendingDown, Trophy, Zap, AlertTriangle, Star, Clock, Users, X } from "lucide-react";
 import { format, subDays, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -34,8 +34,9 @@ interface DevBIData {
   workload: WorkloadEntry[];
   demandChart: DemandEntry[];
   weeklyChangePct: number;
-  dataSource: "live" | "cache";
+  dataSource: "live" | "mixed" | "cache" | "memo";
   cachedAt?: string | null;
+  sourcesPerEndpoint?: { path: string; source: "live" | "cache" }[];
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -65,21 +66,11 @@ function priorityColor(p: string | null) {
   return "var(--success)";
 }
 
-function ElapsedTimer({ since }: { since: string | null }) {
-  const [elapsed, setElapsed] = useState("");
-  useEffect(() => {
-    if (!since) return;
-    const update = () => {
-      const ms = Date.now() - new Date(since).getTime();
-      const h = Math.floor(ms / 3600000);
-      const m = Math.floor((ms % 3600000) / 60000);
-      setElapsed(h > 0 ? `${h}h ${m}m` : `${m}m`);
-    };
-    update();
-    const id = setInterval(update, 60000);
-    return () => clearInterval(id);
-  }, [since]);
-  return <span>{elapsed || "—"}</span>;
+function formatBusinessMinutes(min: number | null) {
+  if (min == null) return "—";
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 function Avatar({ name, url }: { name: string; url: string | null }) {
@@ -131,9 +122,6 @@ export default function DevBIDashboard() {
         setError(body.error ?? `Erro ${res.status}`);
       } else {
         setData(await res.json());
-        // reset filters when new data loads (different team/period)
-        setFilterUserId("");
-        setFilterProject("");
       }
     } catch {
       setError("Falha ao buscar dados.");
@@ -142,6 +130,20 @@ export default function DevBIDashboard() {
   }, [selectedId, startDate, endDate]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // reset filters only when team OR date range changes
+  useEffect(() => {
+    setFilterUserId("");
+    setFilterProject("");
+  }, [selectedId, startDate, endDate]);
+
+  // optional auto-refresh every 60s
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(() => { fetchData(); }, 60_000);
+    return () => clearInterval(id);
+  }, [autoRefresh, fetchData]);
 
   // ── Derived filter options ───────────────────────────────────────────────
   const collaborators = useMemo(() => {
@@ -212,6 +214,10 @@ export default function DevBIDashboard() {
             <RefreshCw size={13} style={{ animation: loading ? "spin 1s linear infinite" : "none" }} />
             Atualizar
           </button>
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--muted)", cursor: "pointer", marginLeft: 4 }}>
+            <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
+            Auto 60s
+          </label>
         </div>
       </div>
 
@@ -261,7 +267,7 @@ export default function DevBIDashboard() {
           <option value="">Todos os projetos</option>
           {projects.map((p) => (
             <option key={p} value={p}>
-              <FolderOpen size={12} /> {p}
+              {p}
             </option>
           ))}
         </select>
@@ -295,12 +301,20 @@ export default function DevBIDashboard() {
         </div>
       )}
 
-      {/* ── Cache notice ── */}
-      {data?.dataSource === "cache" && (
+      {/* ── Cache notice (cache total ou parcial) ── */}
+      {(data?.dataSource === "cache" || data?.dataSource === "mixed") && (
         <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 10, padding: "10px 16px", fontSize: 12, color: "#92400E", display: "flex", alignItems: "center", gap: 8 }}>
           <Clock size={13} />
           <span>
-            <strong>Dados do banco local</strong> — API cardsFlow indisponível no momento.
+            <strong>
+              {data.dataSource === "cache"
+                ? "Dados do banco local"
+                : "Dados parciais do banco local"}
+            </strong>
+            {" — "}
+            {data.dataSource === "cache"
+              ? "API cardsFlow indisponível no momento."
+              : "alguns endpoints do cardsFlow falharam; outros estão ao vivo."}
             {data.cachedAt && ` Última captura: ${format(new Date(data.cachedAt), "dd/MM/yyyy HH:mm", { locale: ptBR })}.`}
             {" "}Os dados serão atualizados automaticamente quando a conexão for restabelecida.
           </span>
@@ -410,7 +424,7 @@ export default function DevBIDashboard() {
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--muted)" }}>
                         <Clock size={10} />
-                        <ElapsedTimer since={t.stageEnteredAt} />
+                        <span>{formatBusinessMinutes(t.businessMinutesInStage)}</span>
                       </div>
                     </div>
                     {t.projectName && (
@@ -457,7 +471,7 @@ export default function DevBIDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRankings
+                  {[...filteredRankings]
                     .sort((a, b) => b.kanbanScore - a.kanbanScore)
                     .map((r, i) => (
                       <tr key={r.userId} style={{ borderBottom: "1px solid var(--border)", background: i === 0 ? "rgba(245,158,11,0.05)" : "transparent" }}>
@@ -559,7 +573,7 @@ export default function DevBIDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRankings.sort((a, b) => (b.slaPct ?? 0) - (a.slaPct ?? 0)).map((r) => (
+                {[...filteredRankings].sort((a, b) => (b.slaPct ?? 0) - (a.slaPct ?? 0)).map((r) => (
                   <tr key={r.userId} style={{ borderBottom: "1px solid var(--border)" }}>
                     <td style={{ padding: "10px 12px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

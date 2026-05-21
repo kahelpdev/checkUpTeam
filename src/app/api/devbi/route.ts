@@ -1,23 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { CardflowService } from "@/services/cardflow";
-import { format, subDays } from "date-fns";
+import { format, subDays, parseISO } from "date-fns";
 
-// ─── Helpers para ler snapshots do banco ───────────────────────────────────
+const PATHS = [
+  "/devbi/kpis",
+  "/devbi/rankings",
+  "/devbi/current-tasks",
+  "/devbi/workload",
+  "/devbi/demand-chart",
+] as const;
 
-async function getSnapshotPayload<T>(path: string, teamConfigId: string): Promise<T | null> {
-  const registry = await prisma.apiRegistry.findFirst({
-    where: { path, isActive: true },
-    select: { id: true },
+// ─── Response cache in-memory (TTL 30s) ────────────────────────────────────
+
+type CacheEntry = { payload: unknown; at: number };
+const respCache = new Map<string, CacheEntry>();
+const RESP_TTL = 30_000;
+
+function cacheKey(teamConfigId: string, startDate: string, endDate: string, projectId: string) {
+  return `${teamConfigId}|${startDate}|${endDate}|${projectId}`;
+}
+
+// ─── Bulk snapshot resolver (1 query para registry + 1 para snapshots) ─────
+
+async function getSnapshotMap(teamConfigId: string) {
+  const registries = await prisma.apiRegistry.findMany({
+    where: { path: { in: [...PATHS] }, isActive: true },
+    select: { id: true, path: true },
   });
-  if (!registry) return null;
-  const snap = await prisma.apiSnapshot.findFirst({
-    where: { apiRegistryId: registry.id, teamConfigId },
+  const ids = registries.map((r) => r.id);
+  if (ids.length === 0) return { map: new Map<string, unknown>(), latestAt: null as Date | null };
+
+  const snaps = await prisma.apiSnapshot.findMany({
+    where: { apiRegistryId: { in: ids }, teamConfigId },
     orderBy: { capturedAt: "desc" },
-    select: { payload: true, capturedAt: true },
+    distinct: ["apiRegistryId"],
+    select: { apiRegistryId: true, payload: true, capturedAt: true },
   });
-  if (!snap) return null;
-  return snap.payload as T;
+
+  const idToPath = new Map(registries.map((r) => [r.id, r.path]));
+  const map = new Map<string, unknown>();
+  let latestAt: Date | null = null;
+  for (const s of snaps) {
+    const path = idToPath.get(s.apiRegistryId);
+    if (path) map.set(path, s.payload);
+    if (!latestAt || s.capturedAt > latestAt) latestAt = s.capturedAt;
+  }
+  return { map, latestAt };
 }
 
 // ─── Parsers de payload (normaliza strings numéricas) ─────────────────────
@@ -116,84 +145,88 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "teamConfigId obrigatório" }, { status: 400 });
   }
 
-  // Resolve o teamId do cardsFlow a partir do teamConfigId interno
+  if (parseISO(startDate) > parseISO(endDate)) {
+    return NextResponse.json({ error: "startDate posterior a endDate" }, { status: 400 });
+  }
+
   const teamConfig = await prisma.teamsConfig.findUnique({ where: { id: teamConfigId } });
   if (!teamConfig) {
     return NextResponse.json({ error: "Equipe não encontrada" }, { status: 404 });
   }
 
-  const chartStart = format(subDays(new Date(startDate), 7), "yyyy-MM-dd");
-  let dataSource: "live" | "cache" = "live";
-  let cachedAt: string | null = null;
-
-  // ── 1. Tenta chamada ao vivo para todos os endpoints ──
-  try {
-    const [kpisArr, rankings, currentTasks, workload, demandChart] = await Promise.all([
-      CardflowService.getKpis(teamConfig.teamId, startDate, endDate),
-      CardflowService.getRankings(teamConfig.teamId, startDate, endDate, projectId),
-      CardflowService.getCurrentTasks(teamConfig.teamId),
-      CardflowService.getWorkload(teamConfig.teamId, startDate, endDate),
-      CardflowService.getDemandChart(teamConfig.teamId, chartStart, endDate),
-    ]);
-
-    const kpis        = parseKpis(kpisArr);
-    const parsedChart = parseDemandChart(demandChart);
-
-    return NextResponse.json({
-      kpis,
-      rankings:     parseRankings(rankings),
-      currentTasks: parseCurrentTasks(currentTasks),
-      workload:     parseWorkload(workload),
-      demandChart:  parsedChart.slice(-14),
-      weeklyChangePct: calcWeeklyChange(parsedChart),
-      dataSource: "live",
-    });
-
-  } catch {
-    // ── 2. API indisponível — lê do banco (api_snapshots) ──
-    dataSource = "cache";
-
-    const [kpisRaw, rankingsRaw, currentTasksRaw, workloadRaw, demandRaw] = await Promise.all([
-      getSnapshotPayload("/devbi/kpis",          teamConfigId),
-      getSnapshotPayload("/devbi/rankings",       teamConfigId),
-      getSnapshotPayload("/devbi/current-tasks",  teamConfigId),
-      getSnapshotPayload("/devbi/workload",        teamConfigId),
-      getSnapshotPayload("/devbi/demand-chart",   teamConfigId),
-    ]);
-
-    // Busca o timestamp do snapshot mais recente para exibir ao usuário
-    const registry = await prisma.apiRegistry.findFirst({
-      where: { path: "/devbi/kpis", isActive: true },
-      select: { id: true },
-    });
-    if (registry) {
-      const snap = await prisma.apiSnapshot.findFirst({
-        where: { apiRegistryId: registry.id, teamConfigId },
-        orderBy: { capturedAt: "desc" },
-        select: { capturedAt: true },
-      });
-      cachedAt = snap?.capturedAt.toISOString() ?? null;
-    }
-
-    const parsedChart = parseDemandChart(demandRaw);
-
-    return NextResponse.json(
-      {
-        kpis:         parseKpis(kpisRaw),
-        rankings:     parseRankings(rankingsRaw),
-        currentTasks: parseCurrentTasks(currentTasksRaw),
-        workload:     parseWorkload(workloadRaw),
-        demandChart:  parsedChart.slice(-14),
-        weeklyChangePct: calcWeeklyChange(parsedChart),
-        dataSource,
-        cachedAt,
+  // ── Response cache hit ──
+  const key = cacheKey(teamConfigId, startDate, endDate, projectId);
+  const cached = respCache.get(key);
+  if (cached && Date.now() - cached.at < RESP_TTL) {
+    return NextResponse.json(cached.payload, {
+      headers: {
+        "X-Data-Source": "memo",
+        "X-Cache-Age": String(Date.now() - cached.at),
       },
-      {
-        headers: {
-          "X-Data-Source": "cache",
-          ...(cachedAt ? { "X-Cached-At": cachedAt } : {}),
-        },
-      }
-    );
+    });
   }
+
+  const chartStart = format(subDays(parseISO(startDate), 7), "yyyy-MM-dd");
+
+  // ── Live-mix: Promise.allSettled, fallback granular por endpoint ──
+  const results = await Promise.allSettled([
+    CardflowService.getKpis(teamConfig.teamId, startDate, endDate),
+    CardflowService.getRankings(teamConfig.teamId, startDate, endDate, projectId),
+    CardflowService.getCurrentTasks(teamConfig.teamId),
+    CardflowService.getWorkload(teamConfig.teamId, startDate, endDate),
+    CardflowService.getDemandChart(teamConfig.teamId, chartStart, endDate),
+  ]);
+
+  const anyFailed = results.some((r) => r.status === "rejected");
+  let snapshotMap: Map<string, unknown> | null = null;
+  let latestAt: Date | null = null;
+  if (anyFailed) {
+    const snap = await getSnapshotMap(teamConfigId);
+    snapshotMap = snap.map;
+    latestAt = snap.latestAt;
+  }
+
+  const pickRaw = (i: number, path: string) =>
+    results[i].status === "fulfilled"
+      ? (results[i] as PromiseFulfilledResult<unknown>).value
+      : snapshotMap?.get(path) ?? null;
+
+  const kpisRaw         = pickRaw(0, "/devbi/kpis");
+  const rankingsRaw     = pickRaw(1, "/devbi/rankings");
+  const currentTasksRaw = pickRaw(2, "/devbi/current-tasks");
+  const workloadRaw     = pickRaw(3, "/devbi/workload");
+  const demandRaw       = pickRaw(4, "/devbi/demand-chart");
+
+  const parsedChart = parseDemandChart(demandRaw);
+  const dataSource: "live" | "mixed" | "cache" = anyFailed
+    ? (results.every((r) => r.status === "rejected") ? "cache" : "mixed")
+    : "live";
+
+  const payload = {
+    kpis:            parseKpis(kpisRaw),
+    rankings:        parseRankings(rankingsRaw),
+    currentTasks:    parseCurrentTasks(currentTasksRaw),
+    workload:        parseWorkload(workloadRaw),
+    demandChart:     parsedChart.slice(-14),
+    weeklyChangePct: calcWeeklyChange(parsedChart),
+    dataSource,
+    cachedAt: dataSource === "live" ? null : latestAt?.toISOString() ?? null,
+    sourcesPerEndpoint: results.map((r, i) => ({
+      path: PATHS[i],
+      source: r.status === "fulfilled" ? "live" : "cache",
+    })),
+  };
+
+  respCache.set(key, { payload, at: Date.now() });
+
+  const liveCount = results.filter((r) => r.status === "fulfilled").length;
+  const headers: Record<string, string> = {
+    "X-Data-Source": dataSource,
+    "X-Endpoints-Live": String(liveCount),
+  };
+  if (dataSource !== "live" && latestAt) {
+    headers["X-Cached-At"] = latestAt.toISOString();
+  }
+
+  return NextResponse.json(payload, { headers });
 }
