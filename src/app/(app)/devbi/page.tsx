@@ -32,6 +32,7 @@ interface DevBIData {
   rankings: RankingEntry[];
   currentTasks: CurrentTask[];
   executionStages: string[];
+  availableStages: string[];
   workload: WorkloadEntry[];
   demandChart: DemandEntry[];
   weeklyChangePct: number;
@@ -467,6 +468,18 @@ export default function DevBIDashboard() {
           {data.executionStages && data.executionStages.length > 0 && (
             <p style={{ fontSize: 11, color: "var(--muted)" }}>
               Stages monitoradas: {data.executionStages.join(", ")}
+            </p>
+          )}
+          {data.availableStages && data.availableStages.length > 0 && (
+            <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4, maxWidth: 720 }}>
+              Stages disponíveis agora no CardsFlow para este time:{" "}
+              <span style={{ fontFamily: "monospace", color: "var(--text)" }}>
+                {data.availableStages.map((s) => `"${s}"`).join(", ")}
+              </span>
+              <br />
+              <span style={{ fontStyle: "italic" }}>
+                Se nenhuma das stages monitoradas aparece acima, ajuste em API Manager.
+              </span>
             </p>
           )}
         </div>
