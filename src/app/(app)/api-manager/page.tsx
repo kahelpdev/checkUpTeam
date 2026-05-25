@@ -45,9 +45,10 @@ export default function ApiManagerPage() {
   const [urlSaved, setUrlSaved] = useState(false);
 
   const [stages, setStages] = useState<string[]>([]);
+  const [availableStages, setAvailableStages] = useState<string[]>([]);
   const [stagesSource, setStagesSource] = useState<"database" | "default" | "">("");
   const [stagesUpdatedAt, setStagesUpdatedAt] = useState<string | null>(null);
-  const [newStageInput, setNewStageInput] = useState("");
+  const [selectInput, setSelectInput] = useState("");
   const [savingStages, setSavingStages] = useState(false);
   const [stagesSaved, setStagesSaved] = useState(false);
   const [stagesError, setStagesError] = useState("");
@@ -69,17 +70,18 @@ export default function ApiManagerPage() {
   const fetchStages = () => {
     fetch("/api/config/devbi-stages")
       .then((r) => r.json())
-      .then((data: { stages: string[]; source: "database" | "default"; updatedAt: string | null }) => {
+      .then((data: { stages: string[]; available?: string[]; source: "database" | "default"; updatedAt: string | null }) => {
         setStages(data.stages);
+        setAvailableStages(Array.isArray(data.available) ? data.available : []);
         setStagesSource(data.source);
         setStagesUpdatedAt(data.updatedAt);
       });
   };
-  const addStage = () => {
-    const v = newStageInput.trim();
-    if (!v || stages.includes(v)) { setNewStageInput(""); return; }
+  const addStage = (raw: string) => {
+    const v = raw.trim();
+    if (!v || stages.includes(v)) { setSelectInput(""); return; }
     setStages((s) => [...s, v]);
-    setNewStageInput("");
+    setSelectInput("");
   };
   const removeStage = (s: string) => setStages((cur) => cur.filter((x) => x !== s));
   const saveStages = async () => {
@@ -213,18 +215,56 @@ export default function ApiManagerPage() {
               </button>
             </span>
           ))}
-          <input
-            value={newStageInput}
-            onChange={(e) => setNewStageInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addStage(); } }}
-            placeholder="+ adicionar stage"
+          <select
+            value={selectInput}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v) { addStage(v); }
+            }}
             style={{
               border: "1px dashed var(--border)", borderRadius: 16, padding: "4px 12px",
               fontSize: 12, outline: "none", background: "transparent", color: "var(--text)",
-              minWidth: 140,
+              minWidth: 200, cursor: "pointer",
             }}
-          />
+            disabled={availableStages.filter((s) => !stages.includes(s)).length === 0}
+          >
+            <option value="">
+              {availableStages.length === 0
+                ? "Carregando stages do CardsFlow..."
+                : availableStages.filter((s) => !stages.includes(s)).length === 0
+                ? "Todas as stages já estão configuradas"
+                : "+ Adicionar stage (selecione)"}
+            </option>
+            {availableStages.filter((s) => !stages.includes(s)).map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
         </div>
+        {availableStages.length > 0 && availableStages.filter((s) => !stages.includes(s)).length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6, fontWeight: 600 }}>
+              Sugestões do CardsFlow (clique para adicionar):
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {availableStages.filter((s) => !stages.includes(s)).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => addStage(s)}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                    fontSize: 11, fontWeight: 500,
+                    background: "var(--bg)", color: "var(--text)",
+                    border: "1px dashed var(--border)", borderRadius: 14,
+                    padding: "3px 9px", cursor: "pointer",
+                  }}
+                  type="button"
+                >
+                  + {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {stagesError && (
           <p style={{ fontSize: 12, color: "var(--danger,#DC2626)", marginBottom: 8 }}>{stagesError}</p>
         )}
