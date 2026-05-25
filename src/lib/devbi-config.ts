@@ -1,10 +1,14 @@
 import { prisma } from "@/lib/prisma";
+import { CardflowService } from "@/services/cardflow";
 
 const DEVBI_EXECUTION_STAGES_KEY = "devbi_execution_stages";
 const DEFAULT_STAGES: readonly string[] = ["Em Execução"];
 
 let cached: { stages: string[]; at: number } | null = null;
 const TTL_MS = 5 * 60 * 1000;
+
+let cachedAvailable: { stages: string[]; at: number } | null = null;
+const AVAILABLE_TTL_MS = 5 * 60 * 1000;
 
 function parseStages(raw: string | undefined | null): string[] {
   if (!raw) return [...DEFAULT_STAGES];
@@ -57,6 +61,35 @@ export async function setDevbiExecutionStages(stages: string[]): Promise<string[
 
 export function invalidateDevbiExecutionStagesCache(): void {
   cached = null;
+}
+
+export async function getDevbiAvailableStages(): Promise<string[]> {
+  if (cachedAvailable && Date.now() - cachedAvailable.at < AVAILABLE_TTL_MS) {
+    return cachedAvailable.stages;
+  }
+  const teams = await prisma.teamsConfig.findMany({ where: { isActive: true } });
+  const all = new Set<string>();
+  await Promise.all(
+    teams.map(async (t) => {
+      try {
+        const tasks = await CardflowService.getCurrentTasks(t.teamId);
+        for (const task of tasks) {
+          if (task && typeof task.currentStage === "string" && task.currentStage.trim().length > 0) {
+            all.add(task.currentStage);
+          }
+        }
+      } catch {
+        // Ignora falha por team — segue mapeando os outros
+      }
+    })
+  );
+  const sorted = [...all].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  cachedAvailable = { stages: sorted, at: Date.now() };
+  return sorted;
+}
+
+export function invalidateDevbiAvailableStagesCache(): void {
+  cachedAvailable = null;
 }
 
 export function getDevbiExecutionStagesKey(): string {

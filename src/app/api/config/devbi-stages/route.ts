@@ -5,17 +5,25 @@ import {
   setDevbiExecutionStages,
   getDevbiExecutionStagesKey,
   getDevbiExecutionStagesDefault,
+  getDevbiAvailableStages,
 } from "@/lib/devbi-config";
 
 export async function GET() {
   const key = getDevbiExecutionStagesKey();
   const config = await prisma.appConfig.findUnique({ where: { key } });
   const stages = await getDevbiExecutionStages();
+  let available: string[] = [];
+  try {
+    available = await getDevbiAvailableStages();
+  } catch {
+    available = [];
+  }
   const source = config?.value ? "database" : "default";
   return NextResponse.json({
     stages,
     source,
     default: getDevbiExecutionStagesDefault(),
+    available,
     updatedAt: config?.updatedAt ?? null,
   });
 }
