@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "tsx prisma/seed.ts",
+    "seed:radar": "tsx prisma/seeds/radar-seed.ts",
+    "test:radar": "tsx tests/radar/business-minutes.test.ts && tsx tests/radar/stage-history.test.ts && tsx tests/radar/metric-calculators.test.ts",
     "backfill:embeddings": "tsx scripts/backfill-embeddings.ts",
     "backfill:embeddings:dry": "tsx scripts/backfill-embeddings.ts --dry-run --limit=10",
     "test:rag": "tsx tests/rag/recall.test.ts"

@@ -215,5 +215,41 @@ export async function runIngestion() {
     })
   );
 
+  // ── Radar Trust Layer (E1) ──────────────────────────────────────────────
+  // Job A: reconstrói histórico de stages (idempotente, todo ciclo de 5min)
+  try {
+    const { runReconstructStageHistory } = await import("@/jobs/reconstructStageHistory");
+    const stageRes = await runReconstructStageHistory();
+    console.log(`[ingestion] Radar Job A: ${JSON.stringify(stageRes)}`);
+  } catch (e) {
+    console.error("[ingestion] Radar Job A falhou:", e);
+  }
+
+  // Job C: calcula metric_results (upsert por dia, todo ciclo de 5min mantém fresh)
+  try {
+    const { runComputeMetricResults } = await import("@/jobs/computeMetricResults");
+    const metricRes = await runComputeMetricResults();
+    console.log(`[ingestion] Radar Job C: ${JSON.stringify(metricRes)}`);
+  } catch (e) {
+    console.error("[ingestion] Radar Job C falhou:", e);
+  }
+
+  // Job B: roda batimentos cruzados — só 1×/dia (queries pesadas + delta não muda a cada 5min)
+  try {
+    const today00 = new Date();
+    today00.setHours(0, 0, 0, 0);
+    const recent = await prisma.metricValidationCheck.findFirst({
+      where: { lastRunAt: { gte: today00 } },
+      select: { id: true },
+    });
+    if (!recent) {
+      const { runMetricValidations } = await import("@/jobs/runMetricValidations");
+      const valRes = await runMetricValidations();
+      console.log(`[ingestion] Radar Job B: ${JSON.stringify(valRes)}`);
+    }
+  } catch (e) {
+    console.error("[ingestion] Radar Job B falhou:", e);
+  }
+
   console.log("[ingestion] Ciclo concluído.");
 }

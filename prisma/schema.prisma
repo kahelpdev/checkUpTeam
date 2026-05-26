@@ -9,48 +9,48 @@ datasource db {
 
 // Equipes do cardsFlow que o líder quer monitorar
 model TeamsConfig {
-  id          String   @id @default(uuid())
-  teamId      String   @unique @map("team_id")
-  teamName    String   @map("team_name")
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id        String   @id @default(uuid())
+  teamId    String   @unique @map("team_id")
+  teamName  String   @map("team_name")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  snapshots   ApiSnapshot[]
-  reprovas    ReprovaHistory[]
+  snapshots ApiSnapshot[]
+  reprovas  ReprovaHistory[]
 
   @@map("teams_config")
 }
 
 // Registry de endpoints do cardsFlow — novos endpoints sem código novo
 model ApiRegistry {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   name        String
   path        String
-  method      String   @default("GET")
+  method      String    @default("GET")
   params      Json?
   description String?
-  isActive    Boolean  @default(true) @map("is_active")
+  isActive    Boolean   @default(true) @map("is_active")
   lastChecked DateTime? @map("last_checked")
-  lastStatus  String?  @map("last_status")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  lastStatus  String?   @map("last_status")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  snapshots   ApiSnapshot[]
+  snapshots ApiSnapshot[]
 
   @@map("api_registry")
 }
 
 // Snapshots históricos de qualquer endpoint
 model ApiSnapshot {
-  id            String       @id @default(uuid())
-  apiRegistryId String       @map("api_registry_id")
-  teamConfigId  String?      @map("team_config_id")
+  id            String   @id @default(uuid())
+  apiRegistryId String   @map("api_registry_id")
+  teamConfigId  String?  @map("team_config_id")
   payload       Json
-  capturedAt    DateTime     @default(now()) @map("captured_at")
+  capturedAt    DateTime @default(now()) @map("captured_at")
 
-  apiRegistry   ApiRegistry  @relation(fields: [apiRegistryId], references: [id])
-  teamConfig    TeamsConfig? @relation(fields: [teamConfigId], references: [id])
+  apiRegistry ApiRegistry  @relation(fields: [apiRegistryId], references: [id])
+  teamConfig  TeamsConfig? @relation(fields: [teamConfigId], references: [id])
 
   @@index([apiRegistryId, capturedAt])
   @@index([teamConfigId, capturedAt])
@@ -82,21 +82,21 @@ model User {
 
 // Histórico de reprovas por dev/período
 model ReprovaHistory {
-  id             String      @id @default(uuid())
-  teamConfigId   String      @map("team_config_id")
-  userId         String      @map("user_id")
-  userName       String      @map("user_name")
-  avatarUrl      String?     @map("avatar_url")
-  qaSubmissions  Int         @default(0) @map("qa_submissions")
-  qaApprovals    Int         @default(0) @map("qa_approvals")
-  qaRejections   Int         @default(0) @map("qa_rejections")
-  qaHitRate      Float?      @map("qa_hit_rate")
-  qaStatus       String?     @map("qa_status")
-  recordedAt     DateTime    @default(now()) @map("recorded_at")
-  periodStart    DateTime    @map("period_start")
-  periodEnd      DateTime    @map("period_end")
+  id            String   @id @default(uuid())
+  teamConfigId  String   @map("team_config_id")
+  userId        String   @map("user_id")
+  userName      String   @map("user_name")
+  avatarUrl     String?  @map("avatar_url")
+  qaSubmissions Int      @default(0) @map("qa_submissions")
+  qaApprovals   Int      @default(0) @map("qa_approvals")
+  qaRejections  Int      @default(0) @map("qa_rejections")
+  qaHitRate     Float?   @map("qa_hit_rate")
+  qaStatus      String?  @map("qa_status")
+  recordedAt    DateTime @default(now()) @map("recorded_at")
+  periodStart   DateTime @map("period_start")
+  periodEnd     DateTime @map("period_end")
 
-  teamConfig     TeamsConfig @relation(fields: [teamConfigId], references: [id])
+  teamConfig TeamsConfig @relation(fields: [teamConfigId], references: [id])
 
   @@index([teamConfigId, recordedAt])
   @@index([userId, recordedAt])
@@ -104,34 +104,312 @@ model ReprovaHistory {
 }
 
 model RelatorioDiario {
-  id                          String                          @id @default(uuid())
-  tipoUsuario                 String                          @map("tipo_usuario")
-  idColaborador               Int                             @map("id_colaborador")
+  id                          String   @id @default(uuid())
+  tipoUsuario                 String   @map("tipo_usuario")
+  idColaborador               Int      @map("id_colaborador")
   nome                        String
   equipe                      String
-  dataDia                     DateTime                        @map("data_dia") @db.Date
-  comoSeSentiu                String                          @map("como_se_sentiu")
-  atividadesRealizadas        String                          @map("atividades_realizadas")
-  impedimentos                String                          @map("impedimentos")
-  demandasPendenteColaborador String                          @map("demandas_pendente_colaborador")
-  demandasPendenteLideranca   String                          @map("demandas_pendente_lideranca")
-  entregasPlanejadas          String                          @map("entregas_planejadas")
-  motivoNaoEntrega            String?                         @map("motivo_nao_entrega")
-  horaExtra                   String                          @map("hora_extra")
-  motivoHoraExtra             String?                         @map("motivo_hora_extra")
-  tempoHoraExtra              Int?                            @map("tempo_hora_extra")
-  horaExtraAprovada           String?                         @map("hora_extra_aprovada")
-  createdAt                   DateTime                        @default(now()) @map("created_at")
+  dataDia                     DateTime @map("data_dia") @db.Date
+  comoSeSentiu                String   @map("como_se_sentiu")
+  atividadesRealizadas        String   @map("atividades_realizadas")
+  impedimentos                String   @map("impedimentos")
+  demandasPendenteColaborador String   @map("demandas_pendente_colaborador")
+  demandasPendenteLideranca   String   @map("demandas_pendente_lideranca")
+  entregasPlanejadas          String   @map("entregas_planejadas")
+  motivoNaoEntrega            String?  @map("motivo_nao_entrega")
+  horaExtra                   String   @map("hora_extra")
+  motivoHoraExtra             String?  @map("motivo_hora_extra")
+  tempoHoraExtra              Int?     @map("tempo_hora_extra")
+  horaExtraAprovada           String?  @map("hora_extra_aprovada")
+  createdAt                   DateTime @default(now()) @map("created_at")
 
   // pgvector: Prisma 7.8 não tipa vector — colunas marcadas como Unsupported
   // para evitar drift detectado pelo `prisma migrate diff`. Acessadas via
   // $queryRaw / $executeRaw em src/lib/embeddings.ts.
-  embedding                   Unsupported("vector(768)")?
-  embeddingUpdatedAt          DateTime?                       @map("embedding_updated_at")
-  embeddingModel              String?                         @map("embedding_model") @db.VarChar(64)
+  embedding          Unsupported("vector(768)")?
+  embeddingUpdatedAt DateTime?                   @map("embedding_updated_at")
+  embeddingModel     String?                     @map("embedding_model") @db.VarChar(64)
 
   @@index([equipe, dataDia])
   @@index([idColaborador, dataDia])
   @@index([dataDia])
   @@map("relatorios_diarios")
+}
+
+// ============================================================================
+// Trust Layer (E1) — radar
+// ============================================================================
+
+// Histórico reconstruído de mudanças de stage por evento (camada 3)
+model FactEventStageHistory {
+  id                        String    @id @default(uuid())
+  eventId                   String    @map("event_id")
+  teamConfigId              String    @map("team_config_id")
+  stage                     String
+  enteredAt                 DateTime  @map("entered_at")
+  enteredAtReportedBySource DateTime? @map("entered_at_reported_by_source")
+  exitedAt                  DateTime? @map("exited_at")
+  durationMinutes           Int?      @map("duration_minutes")
+  durationBusinessMinutes   Int?      @map("duration_business_minutes")
+  sourceSnapshotId          String    @map("source_snapshot_id")
+  reconstructedAt           DateTime  @default(now()) @map("reconstructed_at")
+
+  @@index([eventId, enteredAt])
+  @@index([teamConfigId, stage, enteredAt])
+  @@map("fact_event_stage_history")
+}
+
+// Catálogo de métricas (camada 4)
+model MetricDefinition {
+  key          String   @id
+  name         String
+  description  String?
+  formula      String
+  sourceA      String   @map("source_a")
+  sourceB      String?  @map("source_b")
+  tolerancePct Float?   @map("tolerance_pct")
+  periodicity  String
+  confidence   String   @default("draft")
+  displayMode  String   @default("mirror") @map("display_mode")
+  category     String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  results     MetricResult[]
+  validations MetricValidationCheck[]
+
+  @@map("metric_definitions")
+}
+
+// Batimentos cruzados configuráveis (camada 4)
+model MetricValidationCheck {
+  id           String    @id @default(uuid())
+  metricKey    String    @map("metric_key")
+  description  String
+  query        String
+  tolerancePct Float     @map("tolerance_pct")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastRunAt    DateTime? @map("last_run_at")
+  lastDelta    Float?    @map("last_delta")
+  lastStatus   String?   @map("last_status")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  metric MetricDefinition @relation(fields: [metricKey], references: [key])
+
+  @@map("metric_validation_checks")
+}
+
+// Resultado calculado de métrica por período/recorte (camada 5)
+model MetricResult {
+  id           String   @id @default(uuid())
+  metricKey    String   @map("metric_key")
+  teamConfigId String?  @map("team_config_id")
+  period       String
+  value        Float
+  valueSourceA Float?   @map("value_source_a")
+  valueSourceB Float?   @map("value_source_b")
+  deltaPct     Float?   @map("delta_pct")
+  status       String
+  calculatedAt DateTime @default(now()) @map("calculated_at")
+
+  metric MetricDefinition @relation(fields: [metricKey], references: [key])
+
+  @@unique([metricKey, teamConfigId, period])
+  @@index([metricKey, calculatedAt])
+  @@map("metric_results")
+}
+
+// Incidentes de qualidade de dado (camada 5)
+model DataIncident {
+  id         String    @id @default(uuid())
+  metricKey  String    @map("metric_key")
+  detectedAt DateTime  @default(now()) @map("detected_at")
+  delta      Float?
+  hypothesis String?
+  status     String    @default("open")
+  resolvedAt DateTime? @map("resolved_at")
+  resolution String?
+
+  @@index([metricKey, detectedAt])
+  @@map("data_incidents")
+}
+
+// ============================================================================
+// Cadastros do Radar (E6 — schema só, populado depois)
+// ============================================================================
+
+model Product {
+  id        String   @id @default(uuid())
+  name      String
+  status    String   @default("active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  projects Project[]
+  goals    Goal[]
+
+  @@map("products")
+}
+
+model Project {
+  id          String  @id @default(uuid())
+  name        String
+  productId   String? @map("product_id")
+  squadId     String? @map("squad_id")
+  status      String  @default("active")
+  externalKey String? @map("external_key")
+
+  product Product? @relation(fields: [productId], references: [id])
+  squad   Squad?   @relation(fields: [squadId], references: [id])
+
+  @@map("projects")
+}
+
+model Squad {
+  id     String  @id @default(uuid())
+  name   String
+  leadId String? @map("lead_id")
+
+  projects Project[]
+
+  @@map("squads")
+}
+
+model Goal {
+  id            String    @id @default(uuid())
+  name          String
+  description   String?
+  productId     String?   @map("product_id")
+  targetValue   Float?    @map("target_value")
+  targetUnit    String?   @map("target_unit")
+  startDate     DateTime? @map("start_date")
+  endDate       DateTime? @map("end_date")
+  status        String    @default("active")
+  ownerUserId   String?   @map("owner_user_id")
+  selectionMode String    @default("manual") @map("selection_mode")
+  filterDef     Json?     @map("filter_def")
+
+  product  Product?           @relation(fields: [productId], references: [id])
+  items    GoalItem[]
+  progress FactGoalProgress[]
+
+  @@map("goals")
+}
+
+model GoalItem {
+  id          String  @id @default(uuid())
+  goalId      String  @map("goal_id")
+  eventId     String? @map("event_id")
+  description String
+  weight      Float   @default(1.0)
+  status      String  @default("pending")
+
+  goal Goal @relation(fields: [goalId], references: [id])
+
+  @@index([eventId])
+  @@map("goal_items")
+}
+
+model Classification {
+  id          String  @id @default(uuid())
+  key         String  @unique
+  name        String
+  group       String
+  description String?
+  active      Boolean @default(true)
+
+  @@map("classifications")
+}
+
+model ClassificationRule {
+  id                String  @id @default(uuid())
+  classificationKey String  @map("classification_key")
+  matchType         String  @map("match_type")
+  pattern           String
+  priority          Int     @default(0)
+  active            Boolean @default(true)
+
+  @@map("classification_rules")
+}
+
+model EventClassification {
+  id                String   @id @default(uuid())
+  eventId           String   @map("event_id")
+  classificationKey String   @map("classification_key")
+  source            String
+  classifiedAt      DateTime @default(now()) @map("classified_at")
+
+  @@unique([eventId, classificationKey])
+  @@index([eventId])
+  @@map("event_classifications")
+}
+
+model PersonCost {
+  id                 String    @id @default(uuid())
+  userId             String    @map("user_id")
+  userName           String    @map("user_name")
+  costHour           Float     @map("cost_hour")
+  capacityHoursMonth Float     @map("capacity_hours_month")
+  squadId            String?   @map("squad_id")
+  effectiveFrom      DateTime  @map("effective_from")
+  effectiveTo        DateTime? @map("effective_to")
+
+  @@index([userId, effectiveFrom])
+  @@map("person_costs")
+}
+
+model Tool {
+  id           String  @id @default(uuid())
+  name         String
+  monthlyCost  Float   @map("monthly_cost")
+  costCenter   String? @map("cost_center")
+  licenseCount Int?    @map("license_count")
+  active       Boolean @default(true)
+
+  @@map("tools")
+}
+
+model FactGoalProgress {
+  id          String   @id @default(uuid())
+  goalId      String   @map("goal_id")
+  period      String
+  itemsDone   Int      @map("items_done")
+  itemsTotal  Int      @map("items_total")
+  progressPct Float    @map("progress_pct")
+  daysLeft    Int?     @map("days_left")
+  riskScore   Float?   @map("risk_score")
+  recordedAt  DateTime @default(now()) @map("recorded_at")
+
+  goal Goal @relation(fields: [goalId], references: [id])
+
+  @@unique([goalId, period])
+  @@map("fact_goal_progress")
+}
+
+model FactCost {
+  id           String   @id @default(uuid())
+  period       String
+  category     String
+  squadId      String?  @map("squad_id")
+  productId    String?  @map("product_id")
+  amount       Float
+  detail       Json?
+  calculatedAt DateTime @default(now()) @map("calculated_at")
+
+  @@index([period, category])
+  @@map("fact_cost")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  table     String
+  recordId  String   @map("record_id")
+  action    String
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([table, recordId])
+  @@index([userId, createdAt])
+  @@map("audit_log")
 }
