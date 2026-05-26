@@ -10,7 +10,17 @@ import { format, subDays, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
-interface KpiData { cardsAbertos: number; eventosPendentes: number; slaEmRisco: number; resolvidosHoje: number; }
+interface KpiMeta {
+  value: number;
+  status: "high" | "medium" | "review" | "no_data";
+  incidentId?: string | null;
+}
+interface KpiData {
+  cardsAbertos: KpiMeta;
+  eventosPendentes: KpiMeta;
+  slaEmRisco: KpiMeta;
+  resolvidosHoje: KpiMeta;
+}
 interface RankingEntry {
   userId: string; userName: string; avatarUrl: string | null;
   kanbanScore: number; qaSubmissions: number; qaApprovals: number; qaRejections: number;
@@ -39,6 +49,10 @@ interface DevBIData {
   dataSource: "live" | "mixed" | "cache" | "memo";
   cachedAt?: string | null;
   sourcesPerEndpoint?: { path: string; source: "live" | "cache" }[];
+  tempoEmEtapaMeta?: {
+    status: "high" | "medium" | "review" | "no_data";
+    incidentId?: string | null;
+  };
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -90,11 +104,65 @@ function Avatar({ name, url }: { name: string; url: string | null }) {
   );
 }
 
-function KpiCard({ label, value, color }: { label: string; value: number; color: string }) {
+function ReliabilityIndicator({
+  status,
+  incidentId,
+}: {
+  status: "high" | "medium" | "review" | "no_data";
+  incidentId?: string | null;
+}) {
+  const colorMap = {
+    high: "#16a34a",
+    medium: "#eab308",
+    review: "#dc2626",
+    no_data: "#9ca3af",
+  };
+  const titleMap = {
+    high: "Dado auditado e validado (alta confiança)",
+    medium: "Dado de fonte única (não auditado)",
+    review: "Divergência detectada! Sob revisão",
+    no_data: "Sem dados de auditoria",
+  };
+
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "help" }} title={titleMap[status]}>
+      <span style={{
+        width: 7, height: 7, borderRadius: "50%",
+        background: colorMap[status] || "#9ca3af", display: "inline-block",
+        boxShadow: status === "review" ? "0 0 6px #dc2626" : "none",
+      }} />
+      {incidentId && (
+        <span style={{
+          fontSize: 8, fontWeight: 800, background: "#dc2626", color: "#fff",
+          padding: "1px 4px", borderRadius: 4, letterSpacing: "0.2px"
+        }}>
+          INCIDENTE
+        </span>
+      )}
+    </div>
+  );
+}
+
+function KpiCard({
+  label,
+  value,
+  color,
+  status,
+  incidentId,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  status: "high" | "medium" | "review" | "no_data";
+  incidentId?: string | null;
+}) {
   return (
     <div style={{ ...card, display: "flex", flexDirection: "column", gap: 6 }}>
-      <p style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.6px" }}>{label}</p>
-      <p style={{ fontSize: 32, fontWeight: 800, color, letterSpacing: "-1px", lineHeight: 1 }}>{value ?? "—"}</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.6px", margin: 0 }}>{label}</p>
+        <ReliabilityIndicator status={status} incidentId={incidentId} />
+      </div>
+      <p style={{ fontSize: 32, fontWeight: 800, color, letterSpacing: "-1px", lineHeight: 1, margin: 0 }}>{value ?? "—"}</p>
     </div>
   );
 }
@@ -326,10 +394,34 @@ export default function DevBIDashboard() {
       {/* ── KPIs ── */}
       {data?.kpis && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-          <KpiCard label="Cards Abertos"      value={data.kpis.cardsAbertos}    color="var(--primary)" />
-          <KpiCard label="Eventos Pendentes"  value={data.kpis.eventosPendentes} color="#F59E0B" />
-          <KpiCard label="SLA em Risco"       value={data.kpis.slaEmRisco}       color="var(--danger)" />
-          <KpiCard label="Resolvidos Hoje"    value={data.kpis.resolvidosHoje}   color="var(--success)" />
+          <KpiCard
+            label="Cards Abertos"
+            value={data.kpis.cardsAbertos.value}
+            color="var(--primary)"
+            status={data.kpis.cardsAbertos.status}
+            incidentId={data.kpis.cardsAbertos.incidentId}
+          />
+          <KpiCard
+            label="Eventos Pendentes"
+            value={data.kpis.eventosPendentes.value}
+            color="#F59E0B"
+            status={data.kpis.eventosPendentes.status}
+            incidentId={data.kpis.eventosPendentes.incidentId}
+          />
+          <KpiCard
+            label="SLA em Risco"
+            value={data.kpis.slaEmRisco.value}
+            color="var(--danger)"
+            status={data.kpis.slaEmRisco.status}
+            incidentId={data.kpis.slaEmRisco.incidentId}
+          />
+          <KpiCard
+            label="Resolvidos Hoje"
+            value={data.kpis.resolvidosHoje.value}
+            color="var(--success)"
+            status={data.kpis.resolvidosHoje.status}
+            incidentId={data.kpis.resolvidosHoje.incidentId}
+          />
         </div>
       )}
 
@@ -388,18 +480,26 @@ export default function DevBIDashboard() {
       {/* ── Current Tasks ── */}
       {data?.currentTasks && filteredCurrentTasks.length > 0 && (
         <div>
-          <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginBottom: 12 }}>
-            Em Execução Agora — {filteredCurrentTasks.length} em execução
-            {data.executionStages && data.executionStages.length > 0 && (
-              <span
-                title="Configurar em API Manager"
-                style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)", marginLeft: 6 }}
-              >
-                (filtrado por: {data.executionStages.join(", ")})
-              </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", margin: 0 }}>
+              Em Execução Agora — {filteredCurrentTasks.length} em execução
+              {data.executionStages && data.executionStages.length > 0 && (
+                <span
+                  title="Configurar em API Manager"
+                  style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)", marginLeft: 6 }}
+                >
+                  (filtrado por: {data.executionStages.join(", ")})
+                </span>
+              )}
+              {hasActiveFilter && <span style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)", marginLeft: 6 }}>(filtros adicionais ativos)</span>}
+            </p>
+            {data.tempoEmEtapaMeta && (
+              <ReliabilityIndicator
+                status={data.tempoEmEtapaMeta.status}
+                incidentId={data.tempoEmEtapaMeta.incidentId}
+              />
             )}
-            {hasActiveFilter && <span style={{ fontSize: 11, fontWeight: 400, color: "var(--muted)", marginLeft: 6 }}>(filtros adicionais ativos)</span>}
-          </p>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
             {filteredCurrentTasks.map((t) => (
               <div key={t.userId} style={{

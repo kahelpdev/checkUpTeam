@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { CardflowService } from "@/services/cardflow";
 import { getDevbiExecutionStages } from "@/lib/devbi-config";
 import { format, subDays, parseISO } from "date-fns";
+import { businessMinutesBetween } from "@/lib/business-minutes";
 
 const PATHS = [
   "/devbi/kpis",
@@ -217,10 +218,109 @@ export async function GET(req: NextRequest) {
     (t) => t.eventId !== null && t.currentStage !== null && executionStagesSet.has(t.currentStage)
   );
 
+  // ── Trust Layer E3 Integration ──
+  const metricKeys = ["total_cards_abertos", "eventos_pendentes", "sla_em_risco", "resolvidos_hoje", "tempo_em_etapa_por_pessoa"];
+  const definitions = await prisma.metricDefinition.findMany({
+    where: { key: { in: metricKeys } }
+  });
+  const defMap = new Map(definitions.map((d) => [d.key, d]));
+
+  const period = format(new Date(), "yyyy-MM-dd");
+  const metricResults = await prisma.metricResult.findMany({
+    where: {
+      metricKey: { in: metricKeys },
+      teamConfigId: teamConfig.id,
+      period
+    }
+  });
+  const resMap = new Map(metricResults.map((r) => [r.metricKey, r]));
+
+  const activeIncidents = await prisma.dataIncident.findMany({
+    where: {
+      metricKey: { in: metricKeys },
+      status: { in: ["open", "investigating"] }
+    }
+  });
+  const incidentByKey = new Map(activeIncidents.map((i) => [i.metricKey, i.id]));
+
+  const getKpiMeta = (key: string, originalVal: number) => {
+    const def = defMap.get(key);
+    const result = resMap.get(key);
+    const incidentId = incidentByKey.get(key);
+    
+    let val = originalVal;
+    let status = result?.status ?? "no_data";
+    
+    if (result) {
+      const useRevised = def?.displayMode === "revised" && result.valueSourceB !== null;
+      const rawVal = useRevised ? result.valueSourceB : (result.valueSourceA ?? originalVal);
+      val = rawVal !== null ? Number(rawVal) : originalVal;
+    }
+    
+    return {
+      value: val,
+      status: status as any,
+      incidentId
+    };
+  };
+
+  const parsedKpis = parseKpis(kpisRaw);
+  const kpisPayload = parsedKpis ? {
+    cardsAbertos: getKpiMeta("total_cards_abertos", parsedKpis.cardsAbertos),
+    eventosPendentes: getKpiMeta("eventos_pendentes", parsedKpis.eventosPendentes),
+    slaEmRisco: getKpiMeta("sla_em_risco", parsedKpis.slaEmRisco),
+    resolvidosHoje: getKpiMeta("resolvidos_hoje", parsedKpis.resolvidosHoje),
+  } : null;
+
+  const tempoDef = defMap.get("tempo_em_etapa_por_pessoa");
+  const useRevisedTempo = tempoDef?.displayMode === "revised";
+
+  let recalculatedCurrentTasks = filteredCurrentTasks;
+  if (useRevisedTempo) {
+    const activeEventIds = filteredCurrentTasks.map((t) => t.eventId).filter((id): id is string => id !== null);
+    if (activeEventIds.length > 0) {
+      const activeStages = await prisma.factEventStageHistory.findMany({
+        where: {
+          eventId: { in: activeEventIds },
+          teamConfigId: teamConfig.id,
+          exitedAt: null
+        }
+      });
+      const activeStageByEventAndStage = new Map<string, Date>();
+      for (const s of activeStages) {
+        activeStageByEventAndStage.set(`${s.eventId}|${s.stage}`, s.enteredAt);
+      }
+
+      const now = new Date();
+
+      recalculatedCurrentTasks = filteredCurrentTasks.map((t) => {
+        if (!t.eventId || !t.currentStage) return t;
+        const key = `${t.eventId}|${t.currentStage}`;
+        const enteredAt = activeStageByEventAndStage.get(key);
+        if (enteredAt) {
+          const recalculatedMins = businessMinutesBetween(enteredAt, now);
+          return {
+            ...t,
+            businessMinutesInStage: recalculatedMins
+          };
+        }
+        return t;
+      });
+    }
+  }
+
+  const tempoResult = resMap.get("tempo_em_etapa_por_pessoa");
+  const tempoIncidentId = incidentByKey.get("tempo_em_etapa_por_pessoa");
+  const tempoEmEtapaMeta = {
+    status: tempoResult?.status ?? "no_data",
+    incidentId: tempoIncidentId
+  };
+
   const payload = {
-    kpis:            parseKpis(kpisRaw),
+    kpis:            kpisPayload,
     rankings:        parseRankings(rankingsRaw),
-    currentTasks:    filteredCurrentTasks,
+    currentTasks:    recalculatedCurrentTasks,
+    tempoEmEtapaMeta,
     executionStages,
     availableStages,
     workload:        parseWorkload(workloadRaw),
