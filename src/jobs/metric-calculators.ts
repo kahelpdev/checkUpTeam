@@ -32,7 +32,7 @@ function pickValueMirror(a: number | null, b: number | null): number | null {
 // ── Calculators ──────────────────────────────────────────────────────────────
 
 type Kpis = { cardsAbertos?: number; resolvidosHoje?: number; eventosPendentes?: number; slaEmRisco?: number };
-type CurrentTask = { eventId: string | null; currentStage: string | null; businessMinutesInStage?: number | null };
+type CurrentTask = { eventId?: string | null; currentStage?: string | null; businessMinutesInStage?: number | null };
 type DemandPoint = { date: string; total: number; resolved: number };
 type FactRow = { stage: string; durationBusinessMinutes: number | null; exitedAt: Date | null };
 
