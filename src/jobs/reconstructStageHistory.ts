@@ -131,65 +131,76 @@ export async function runReconstructStageHistory(): Promise<{ processedSnapshots
   const lastRecon = await prisma.factEventStageHistory.aggregate({ _max: { reconstructedAt: true } });
   const since = lastRecon._max.reconstructedAt ?? new Date(0);
 
-  const snapsRaw = await prisma.apiSnapshot.findMany({
-    where: { apiRegistryId: registry.id, capturedAt: { gt: since } },
-    orderBy: { capturedAt: "asc" },
-    select: { id: true, capturedAt: true, teamConfigId: true, payload: true },
-  });
-
-  if (snapsRaw.length === 0) return { processedSnapshots: 0, openedRows: 0, closedRows: 0 };
-
-  // Agrupa por team
-  const byTeam = new Map<string, SnapshotEntry[]>();
-  for (const s of snapsRaw) {
-    const teamId = s.teamConfigId ?? "_global";
-    const members = Array.isArray(s.payload) ? (s.payload as unknown as SnapshotMember[]) : [];
-    const entry: SnapshotEntry = {
-      snapshotId: s.id,
-      capturedAt: s.capturedAt,
-      teamConfigId: teamId,
-      members,
-    };
-    if (!byTeam.has(teamId)) byTeam.set(teamId, []);
-    byTeam.get(teamId)!.push(entry);
-  }
-
+  let sinceCursor = since;
+  const batchSize = 100;
+  let processedSnapshots = 0;
   let opened = 0;
   let closed = 0;
 
-  for (const [, snaps] of byTeam) {
-    const transitions = detectTransitions(snaps, initialOpen);
+  while (true) {
+    const snapsRaw = await prisma.apiSnapshot.findMany({
+      where: { apiRegistryId: registry.id, capturedAt: { gt: sinceCursor } },
+      orderBy: { capturedAt: "asc" },
+      take: batchSize,
+      select: { id: true, capturedAt: true, teamConfigId: true, payload: true },
+    });
 
-    for (const t of transitions) {
-      if (t.action === "open") {
-        await prisma.factEventStageHistory.create({
-          data: {
-            eventId: t.eventId,
-            teamConfigId: t.teamConfigId,
-            stage: t.stage,
-            enteredAt: t.at,
-            enteredAtReportedBySource: t.enteredAtReportedBySource ?? null,
-            sourceSnapshotId: t.snapshotId,
-          },
-        });
-        opened++;
-      } else {
-        const row = await prisma.factEventStageHistory.findFirst({
-          where: { eventId: t.eventId, stage: t.stage, exitedAt: null },
-          orderBy: { enteredAt: "desc" },
-        });
-        if (row) {
-          const durationMin = Math.max(0, Math.round((t.at.getTime() - row.enteredAt.getTime()) / 60000));
-          const businessMin = businessMinutesBetween(row.enteredAt, t.at);
-          await prisma.factEventStageHistory.update({
-            where: { id: row.id },
-            data: { exitedAt: t.at, durationMinutes: durationMin, durationBusinessMinutes: businessMin },
+    if (snapsRaw.length === 0) break;
+
+    // Agrupa por team
+    const byTeam = new Map<string, SnapshotEntry[]>();
+    for (const s of snapsRaw) {
+      const teamId = s.teamConfigId ?? "_global";
+      const members = Array.isArray(s.payload) ? (s.payload as unknown as SnapshotMember[]) : [];
+      const entry: SnapshotEntry = {
+        snapshotId: s.id,
+        capturedAt: s.capturedAt,
+        teamConfigId: teamId,
+        members,
+      };
+      if (!byTeam.has(teamId)) byTeam.set(teamId, []);
+      byTeam.get(teamId)!.push(entry);
+    }
+
+    for (const [, snaps] of byTeam) {
+      const transitions = detectTransitions(snaps, initialOpen);
+
+      for (const t of transitions) {
+        if (t.action === "open") {
+          await prisma.factEventStageHistory.create({
+            data: {
+              eventId: t.eventId,
+              teamConfigId: t.teamConfigId,
+              stage: t.stage,
+              enteredAt: t.at,
+              enteredAtReportedBySource: t.enteredAtReportedBySource ?? null,
+              sourceSnapshotId: t.snapshotId,
+            },
           });
-          closed++;
+          initialOpen.set(t.eventId, { eventId: t.eventId, stage: t.stage, enteredAt: t.at });
+          opened++;
+        } else {
+          const row = await prisma.factEventStageHistory.findFirst({
+            where: { eventId: t.eventId, stage: t.stage, exitedAt: null },
+            orderBy: { enteredAt: "desc" },
+          });
+          if (row) {
+            const durationMin = Math.max(0, Math.round((t.at.getTime() - row.enteredAt.getTime()) / 60000));
+            const businessMin = businessMinutesBetween(row.enteredAt, t.at);
+            await prisma.factEventStageHistory.update({
+              where: { id: row.id },
+              data: { exitedAt: t.at, durationMinutes: durationMin, durationBusinessMinutes: businessMin },
+            });
+            initialOpen.delete(t.eventId);
+            closed++;
+          }
         }
       }
     }
+
+    sinceCursor = snapsRaw[snapsRaw.length - 1].capturedAt;
+    processedSnapshots += snapsRaw.length;
   }
 
-  return { processedSnapshots: snapsRaw.length, openedRows: opened, closedRows: closed };
+  return { processedSnapshots, openedRows: opened, closedRows: closed };
 }
