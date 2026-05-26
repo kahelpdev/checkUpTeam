@@ -11,12 +11,25 @@ import {
 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
-interface Kpi {
-  cardsAbertos: number;
-  eventosPendentes: number;
-  slaEmRisco: number;
-  resolvidosHoje: number;
+interface MetricMeta {
+  value: number;
+  status: "high" | "medium" | "review" | "no_data";
+  incidentId?: string;
+  asOf: string;
 }
+
+interface DashboardKpis {
+  cardsAbertos: MetricMeta;
+  eventosPendentes: MetricMeta;
+  slaEmRisco: MetricMeta;
+  resolvidosHoje: MetricMeta;
+}
+
+const defaultMeta = (val = 0): MetricMeta => ({
+  value: val,
+  status: "no_data",
+  asOf: new Date().toISOString()
+});
 
 interface Member {
   userId: string;
@@ -77,9 +90,53 @@ function stageColor(stage: string | null): string {
   return "var(--primary)";
 }
 
+function ReliabilityIndicator({
+  status,
+  incidentId,
+}: {
+  status: "high" | "medium" | "review" | "no_data";
+  incidentId?: string;
+}) {
+  const colorMap = {
+    high: "#16a34a",
+    medium: "#eab308",
+    review: "#dc2626",
+    no_data: "#9ca3af",
+  };
+  const titleMap = {
+    high: "Dado auditado e validado (alta confiança)",
+    medium: "Dado de fonte única (não auditado)",
+    review: "Divergência detectada! Sob revisão",
+    no_data: "Sem dados de auditoria",
+  };
+
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "help" }} title={titleMap[status]}>
+      <span style={{
+        width: 7, height: 7, borderRadius: "50%",
+        background: colorMap[status] || "#9ca3af", display: "inline-block",
+        boxShadow: status === "review" ? "0 0 6px #dc2626" : "none",
+      }} />
+      {incidentId && (
+        <span style={{
+          fontSize: 8, fontWeight: 800, background: "#dc2626", color: "#fff",
+          padding: "1px 4px", borderRadius: 4, letterSpacing: "0.2px"
+        }}>
+          INCIDENTE
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { selectedTeam, loading: teamLoading } = useSelectedTeam();
-  const [kpis, setKpis] = useState<Kpi | null>(null);
+  const [kpis, setKpis] = useState<DashboardKpis>({
+    cardsAbertos: defaultMeta(0),
+    eventosPendentes: defaultMeta(0),
+    slaEmRisco: defaultMeta(0),
+    resolvidosHoje: defaultMeta(0),
+  });
   const [members, setMembers] = useState<Member[]>([]);
   const [demand, setDemand] = useState<DemandPoint[]>([]);
   const [reprova, setReprova] = useState<ReprovaPreview[]>([]);
@@ -92,15 +149,39 @@ export default function DashboardPage() {
     setDataLoading(true);
     setDataSource(null);
     setCachedAt(null);
+    
+    const keys = "total_cards_abertos,eventos_pendentes,sla_em_risco,resolvidos_hoje";
+    const qMetrics = `?keys=${keys}&teamId=${selectedTeam.id}`;
     const q = `?teamConfigId=${selectedTeam.id}`;
     const safe = (url: string) => fetch(url).then((r) => r.json()).catch(() => null);
+    
     Promise.all([
-      safe(`/api/kpis${q}`),
+      safe(`/api/radar/metrics${qMetrics}`),
       safe(`/api/current-tasks${q}`),
       safe(`/api/demand-chart${q}`),
       safe(`/api/reprova${q}`),
-    ]).then(([kpisRes, tasksRes, demandRes, reprovaRes]) => {
-      if (kpisRes?.data)           setKpis(kpisRes.data);
+    ]).then(([metricsRes, tasksRes, demandRes, reprovaRes]) => {
+      if (metricsRes?.metrics) {
+        const list = metricsRes.metrics as any[];
+        const findMetric = (key: string, fallbackVal = 0): MetricMeta => {
+          const m = list.find((x) => x.key === key);
+          if (!m) return defaultMeta(fallbackVal);
+          return {
+            value: typeof m.value === "number" ? m.value : fallbackVal,
+            status: m.status ?? "no_data",
+            incidentId: m.incidentId,
+            asOf: m.asOf || new Date().toISOString()
+          };
+        };
+
+        setKpis({
+          cardsAbertos: findMetric("total_cards_abertos", 0),
+          eventosPendentes: findMetric("eventos_pendentes", 0),
+          slaEmRisco: findMetric("sla_em_risco", 0),
+          resolvidosHoje: findMetric("resolvidos_hoje", 0),
+        });
+      }
+      
       if (Array.isArray(tasksRes)) setMembers(tasksRes);
       if (demandRes?.data)         setDemand(demandRes.data);
       if (reprovaRes?.members) {
@@ -109,17 +190,17 @@ export default function DashboardPage() {
           .slice(0, 5);
         setReprova(sorted);
       }
-      // Determina fonte dos dados (kpis é o indicador primário)
-      const src = kpisRes?.dataSource ?? (Array.isArray(tasksRes) && tasksRes.length > 0 ? "live" : null);
+      
+      const src = demandRes?.dataSource ?? (Array.isArray(tasksRes) && tasksRes.length > 0 ? "live" : null);
       setDataSource(src);
-      setCachedAt(kpisRes?.capturedAt ?? null);
+      setCachedAt(demandRes?.capturedAt ?? null);
     }).finally(() => setDataLoading(false));
   }, [selectedTeam]);
 
   const alertCount  = reprova.filter((r) => r.qaStatus === "Alerta Comport.").length;
-  const slaRisk     = kpis?.slaEmRisco ?? 0;
+  const slaRisk     = kpis.slaEmRisco.value;
   const totalAlerts = alertCount + (slaRisk > 0 ? 1 : 0);
-  const totalCards  = (kpis?.cardsAbertos ?? 0) + (kpis?.resolvidosHoje ?? 0);
+  const totalCards  = kpis.cardsAbertos.value + kpis.resolvidosHoje.value;
 
   if (teamLoading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 256, color: "var(--muted)" }}>
@@ -208,38 +289,49 @@ export default function DashboardPage() {
           </div>
 
           {/* Big number */}
-          <p style={{
-            fontSize: 56, fontWeight: 800, color: "var(--primary)",
-            letterSpacing: "-2.5px", lineHeight: 1, marginBottom: 4,
-            fontFamily: "var(--font-mono)",
-          }}>
-            {dataLoading ? "—" : (kpis?.cardsAbertos ?? "—")}
-          </p>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+            <p style={{
+              fontSize: 56, fontWeight: 800, color: "var(--primary)",
+              letterSpacing: "-2.5px", lineHeight: 1, marginBottom: 4,
+              fontFamily: "var(--font-mono)",
+            }}>
+              {dataLoading ? "—" : kpis.cardsAbertos.value}
+            </p>
+            {!dataLoading && (
+              <ReliabilityIndicator status={kpis.cardsAbertos.status} incidentId={kpis.cardsAbertos.incidentId} />
+            )}
+          </div>
           <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 24 }}>Cards Ativos</p>
 
           {/* Capacity bars */}
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                <span style={{ fontSize: 11, color: "var(--secondary)", fontWeight: 500 }}>
-                  Resolvidos hoje ({kpis?.resolvidosHoje ?? 0})
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, alignItems: "center" }}>
+                <span style={{ fontSize: 11, color: "var(--secondary)", fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                  Resolvidos hoje ({kpis.resolvidosHoje.value})
+                  {!dataLoading && (
+                    <ReliabilityIndicator status={kpis.resolvidosHoje.status} incidentId={kpis.resolvidosHoje.incidentId} />
+                  )}
                 </span>
                 <span style={{ fontSize: 11, fontWeight: 700, color: "var(--primary)" }}>
-                  {totalCards > 0 ? Math.round(((kpis?.resolvidosHoje ?? 0) / totalCards) * 100) : 0}%
+                  {totalCards > 0 ? Math.round((kpis.resolvidosHoje.value / totalCards) * 100) : 0}%
                 </span>
               </div>
-              <ProgressBar value={kpis?.resolvidosHoje ?? 0} max={totalCards || 1} color="var(--primary)" />
+              <ProgressBar value={kpis.resolvidosHoje.value} max={totalCards || 1} color="var(--primary)" />
             </div>
             <div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                <span style={{ fontSize: 11, color: "var(--secondary)", fontWeight: 500 }}>
-                  Eventos pendentes ({kpis?.eventosPendentes ?? 0})
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, alignItems: "center" }}>
+                <span style={{ fontSize: 11, color: "var(--secondary)", fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                  Eventos pendentes ({kpis.eventosPendentes.value})
+                  {!dataLoading && (
+                    <ReliabilityIndicator status={kpis.eventosPendentes.status} incidentId={kpis.eventosPendentes.incidentId} />
+                  )}
                 </span>
                 <span style={{ fontSize: 11, fontWeight: 700, color: slaRisk > 0 ? "var(--danger)" : "var(--success)" }}>
                   {slaRisk > 0 ? `${slaRisk} em risco` : "OK"}
                 </span>
               </div>
-              <ProgressBar value={kpis?.eventosPendentes ?? 0} max={50} color={slaRisk > 0 ? "var(--danger)" : "var(--success)"} />
+              <ProgressBar value={kpis.eventosPendentes.value} max={50} color={slaRisk > 0 ? "var(--danger)" : "var(--success)"} />
             </div>
           </div>
         </div>
@@ -286,6 +378,8 @@ export default function DashboardPage() {
                   statusColor="var(--danger)"
                   action="Verificar tarefas"
                   href="/tasks"
+                  reliabilityStatus={kpis.slaEmRisco.status}
+                  incidentId={kpis.slaEmRisco.incidentId}
                 />
               )}
               {alertCount > 0 && (
@@ -455,7 +549,7 @@ export default function DashboardPage() {
 
 /* ── Bottleneck card sub-component ── */
 function BottleneckCard({
-  icon, title, desc, status, statusColor, action, href,
+  icon, title, desc, status, statusColor, action, href, reliabilityStatus, incidentId
 }: {
   icon: React.ReactNode;
   title: string;
@@ -464,13 +558,21 @@ function BottleneckCard({
   statusColor: string;
   action: string;
   href: string;
+  reliabilityStatus?: "high" | "medium" | "review" | "no_data";
+  incidentId?: string;
 }) {
   return (
     <div style={{
       border: "1px solid var(--border)", borderRadius: 12,
       padding: "16px", background: "var(--surface-2)",
       display: "flex", flexDirection: "column", gap: 10,
+      position: "relative",
     }}>
+      {reliabilityStatus && (
+        <div style={{ position: "absolute", top: 12, right: 12 }}>
+          <ReliabilityIndicator status={reliabilityStatus} incidentId={incidentId} />
+        </div>
+      )}
       <div style={{
         width: 38, height: 38, borderRadius: 10,
         background: "var(--surface)", border: "1px solid var(--border)",

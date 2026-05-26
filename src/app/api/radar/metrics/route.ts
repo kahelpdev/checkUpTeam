@@ -45,16 +45,22 @@ export async function GET(req: NextRequest) {
   });
   const incidentByKey = new Map(incidents.map((i) => [i.metricKey, i.id]));
 
-  const dto: MetricResultDTO[] = dedup.map((r) => ({
-    key: r.metricKey,
-    value: r.value,
-    status: r.status as MetricResultDTO["status"],
-    valueSourceA: isAdmin ? r.valueSourceA : null,
-    valueSourceB: isAdmin ? r.valueSourceB : null,
-    deltaPct: isAdmin ? r.deltaPct : null,
-    incidentId: incidentByKey.get(r.metricKey),
-    asOf: r.calculatedAt.toISOString(),
-  }));
+  const defMap = new Map(definitions.map((d) => [d.key, d]));
+  const dto: MetricResultDTO[] = dedup.map((r) => {
+    const def = defMap.get(r.metricKey);
+    const useRevised = def?.displayMode === "revised" && r.valueSourceB !== null;
+    const val = useRevised ? r.valueSourceB : r.valueSourceA;
+    return {
+      key: r.metricKey,
+      value: val ?? r.value,
+      status: r.status as MetricResultDTO["status"],
+      valueSourceA: isAdmin ? r.valueSourceA : null,
+      valueSourceB: isAdmin ? r.valueSourceB : null,
+      deltaPct: isAdmin ? r.deltaPct : null,
+      incidentId: incidentByKey.get(r.metricKey),
+      asOf: r.calculatedAt.toISOString(),
+    };
+  });
 
   return NextResponse.json({ metrics: dto });
 }
