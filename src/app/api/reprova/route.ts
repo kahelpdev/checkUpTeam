@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { format } from "date-fns";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -18,13 +19,11 @@ export async function GET(req: NextRequest) {
     where.recordedAt = { ...existingDate, lte: new Date(endDate) };
   }
 
-  // Todos os registros do período para tabela + histórico
   const latest = await prisma.reprovaHistory.findMany({
     where,
     orderBy: { recordedAt: "desc" },
   });
 
-  // Snapshot mais recente por desenvolvedor (para tabela)
   const byUser = new Map<string, (typeof latest)[0]>();
   for (const record of latest) {
     if (!byUser.has(record.userId)) byUser.set(record.userId, record);
@@ -64,7 +63,6 @@ export async function GET(req: NextRequest) {
       select: { payload: true, capturedAt: true },
     });
 
-    // Agrupa por dia: último snapshot do dia vence
     const byDate = new Map<string, Record<string, number>>();
     for (const snap of snapshots) {
       const date = snap.capturedAt.toISOString().slice(0, 10);
@@ -83,6 +81,27 @@ export async function GET(req: NextRequest) {
       .map(([date, users]) => ({ date, ...users }));
   }
 
+  // ── Trust Layer E5 Integration ──
+  const metricKeys = ["dev_reprova_summary", "dev_alerta_comportamental", "qa_rejections_semana"];
+  const period = format(new Date(), "yyyy-MM-dd");
+
+  const [metricResults, activeIncidents] = await Promise.all([
+    prisma.metricResult.findMany({
+      where: { metricKey: { in: metricKeys }, period },
+    }),
+    prisma.dataIncident.findMany({
+      where: { metricKey: { in: metricKeys }, status: { in: ["open", "investigating"] } },
+    }),
+  ]);
+
+  const resMap = new Map(metricResults.map((r) => [r.metricKey, r]));
+  const incMap = new Map(activeIncidents.map((i) => [i.metricKey, i.id]));
+
+  const trustMeta = (key: string) => ({
+    status: (resMap.get(key)?.status ?? "no_data") as "high" | "medium" | "review" | "no_data",
+    incidentId: incMap.get(key) ?? null,
+  });
+
   return NextResponse.json({
     members: all,
     teamKpi: {
@@ -93,5 +112,10 @@ export async function GET(req: NextRequest) {
     },
     history: latest,
     chartData,
+    reprovaMeta: {
+      devReprova:        trustMeta("dev_reprova_summary"),
+      alertComport:      trustMeta("dev_alerta_comportamental"),
+      qaRejectionsWeek:  trustMeta("qa_rejections_semana"),
+    },
   });
 }

@@ -34,11 +34,23 @@ interface ChartPoint {
   [userName: string]: string | number;
 }
 
+interface TrustEntry {
+  status: "high" | "medium" | "review" | "no_data";
+  incidentId: string | null;
+}
+
+interface ReprovaMeta {
+  devReprova:       TrustEntry;
+  alertComport:     TrustEntry;
+  qaRejectionsWeek: TrustEntry;
+}
+
 interface ApiResponse {
   members: Member[];
   teamKpi: TeamKpi;
   history: Member[];
   chartData: ChartPoint[];
+  reprovaMeta?: ReprovaMeta;
 }
 
 type SortKey = "qaRejections" | "qaSubmissions" | "qaHitRate" | "qaStatus";
@@ -58,6 +70,39 @@ function exportCsv(members: Member[]) {
   a.download = `reprova_${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function ReliabilityIndicator({
+  status,
+  incidentId,
+}: {
+  status: "high" | "medium" | "review" | "no_data";
+  incidentId?: string | null;
+}) {
+  const colorMap = { high: "#16a34a", medium: "#eab308", review: "#dc2626", no_data: "#9ca3af" };
+  const titleMap = {
+    high:    "Dado auditado e validado (alta confiança)",
+    medium:  "Dado de fonte única (não auditado)",
+    review:  "Divergência detectada! Sob revisão",
+    no_data: "Sem dados de auditoria",
+  };
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "help" }} title={titleMap[status]}>
+      <span style={{
+        width: 7, height: 7, borderRadius: "50%",
+        background: colorMap[status] || "#9ca3af", display: "inline-block",
+        boxShadow: status === "review" ? "0 0 6px #dc2626" : "none",
+      }} />
+      {incidentId && (
+        <span style={{
+          fontSize: 8, fontWeight: 800, background: "#dc2626", color: "#fff",
+          padding: "1px 4px", borderRadius: 4, letterSpacing: "0.2px",
+        }}>
+          INCIDENTE
+        </span>
+      )}
+    </div>
+  );
 }
 
 export default function ReprovaPage() {
@@ -98,6 +143,8 @@ export default function ReprovaPage() {
     else { setSortKey(key); setSortDir("desc"); }
   };
 
+  const meta = data?.reprovaMeta;
+
   if (teamLoading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 256, color: "var(--muted)" }}>
       Carregando...
@@ -126,26 +173,55 @@ export default function ReprovaPage() {
       {/* KPIs */}
       {data?.teamKpi && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
-          <KpiCard label="Total Submissões" value={data.teamKpi.totalSubmissions}
-            icon={<Users size={16} color="#242873" />} accent="navy" />
-          <KpiCard label="Total Reprovas" value={data.teamKpi.totalRejections}
-            icon={<AlertTriangle size={16} color="#DC3545" />} accent="danger" />
+          <div style={{ position: "relative" }}>
+            <KpiCard label="Total Submissões" value={data.teamKpi.totalSubmissions}
+              icon={<Users size={16} color="#242873" />} accent="navy" />
+            {!loading && meta?.devReprova && (
+              <div style={{ position: "absolute", top: 10, right: 10 }}>
+                <ReliabilityIndicator status={meta.devReprova.status} incidentId={meta.devReprova.incidentId} />
+              </div>
+            )}
+          </div>
+
+          <div style={{ position: "relative" }}>
+            <KpiCard label="Total Reprovas" value={data.teamKpi.totalRejections}
+              icon={<AlertTriangle size={16} color="#DC3545" />} accent="danger" />
+            {!loading && meta?.qaRejectionsWeek && (
+              <div style={{ position: "absolute", top: 10, right: 10 }}>
+                <ReliabilityIndicator status={meta.qaRejectionsWeek.status} incidentId={meta.qaRejectionsWeek.incidentId} />
+              </div>
+            )}
+          </div>
+
           <KpiCard
             label="Taxa de Aprovação"
             value={data.teamKpi.teamHitRate !== null ? `${data.teamKpi.teamHitRate}%` : "—"}
             icon={<CheckCircle size={16} color="#78BFA5" />} accent="sage"
           />
-          <KpiCard label="Alertas Ativos" value={data.teamKpi.alertCount}
-            icon={<AlertTriangle size={16} color="#DC3545" />} accent="danger"
-            delta={data.teamKpi.alertCount > 0 ? "atenção" : "ok"}
-            deltaType={data.teamKpi.alertCount > 0 ? "down" : "up"} />
+
+          <div style={{ position: "relative" }}>
+            <KpiCard label="Alertas Ativos" value={data.teamKpi.alertCount}
+              icon={<AlertTriangle size={16} color="#DC3545" />} accent="danger"
+              delta={data.teamKpi.alertCount > 0 ? "atenção" : "ok"}
+              deltaType={data.teamKpi.alertCount > 0 ? "down" : "up"} />
+            {!loading && meta?.alertComport && (
+              <div style={{ position: "absolute", top: 10, right: 10 }}>
+                <ReliabilityIndicator status={meta.alertComport.status} incidentId={meta.alertComport.incidentId} />
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* Tabela */}
       <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(36,40,115,0.05)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)" }}>Por Desenvolvedor</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)", margin: 0 }}>Por Desenvolvedor</p>
+            {!loading && meta?.devReprova && (
+              <ReliabilityIndicator status={meta.devReprova.status} incidentId={meta.devReprova.incidentId} />
+            )}
+          </div>
           <button
             onClick={() => setOnlyAlerts((v) => !v)}
             style={{
