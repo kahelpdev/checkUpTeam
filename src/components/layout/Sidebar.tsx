@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, ClipboardList, AlertTriangle, Settings,
-  ChevronDown, Zap, Check, Shield, LogOut, BarChart2, FileText,
+  ChevronDown, Zap, Check, Shield, LogOut, BarChart2, FileText, Activity,
 } from "lucide-react";
 import { useSelectedTeam } from "@/hooks/useTeam";
 
@@ -25,8 +25,9 @@ const NAV_MAIN = [
 ];
 
 const NAV_SYSTEM = [
-  { href: "/api-manager", label: "Configurações",  icon: Settings, roles: ["admin", "lider"] },
-  { href: "/users",       label: "Usuários",       icon: Shield,   roles: ["admin"] },
+  { href: "/radar/data-quality", label: "Qualidade de Dados", icon: Activity, roles: ["admin"] },
+  { href: "/api-manager",        label: "Configurações",      icon: Settings, roles: ["admin", "lider"] },
+  { href: "/users",              label: "Usuários",           icon: Shield,   roles: ["admin"] },
 ];
 
 function NavLink({ href, label, icon: Icon, active, badge }: { href: string; label: string; icon: React.ElementType; active: boolean; badge?: boolean }) {
