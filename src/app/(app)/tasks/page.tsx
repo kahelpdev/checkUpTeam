@@ -26,6 +26,11 @@ interface WorkloadEntry {
   totalEvents: number;
 }
 
+interface TempoMeta {
+  status: "high" | "medium" | "review" | "no_data";
+  incidentId: string | null;
+}
+
 function formatMinutes(min: number | null) {
   if (min === null) return "—";
   if (min < 60) return `${min}min`;
@@ -46,6 +51,39 @@ function Avatar({ name, url, size = 28 }: { name: string; url: string | null; si
       border: "2px solid #fff",
     }}>
       {initials}
+    </div>
+  );
+}
+
+function ReliabilityIndicator({
+  status,
+  incidentId,
+}: {
+  status: "high" | "medium" | "review" | "no_data";
+  incidentId?: string | null;
+}) {
+  const colorMap = { high: "#16a34a", medium: "#eab308", review: "#dc2626", no_data: "#9ca3af" };
+  const titleMap = {
+    high:    "Dado auditado e validado (alta confiança)",
+    medium:  "Dado de fonte única (não auditado)",
+    review:  "Divergência detectada! Sob revisão",
+    no_data: "Sem dados de auditoria",
+  };
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "help" }} title={titleMap[status]}>
+      <span style={{
+        width: 7, height: 7, borderRadius: "50%",
+        background: colorMap[status] || "#9ca3af", display: "inline-block",
+        boxShadow: status === "review" ? "0 0 6px #dc2626" : "none",
+      }} />
+      {incidentId && (
+        <span style={{
+          fontSize: 8, fontWeight: 800, background: "#dc2626", color: "#fff",
+          padding: "1px 4px", borderRadius: 4, letterSpacing: "0.2px",
+        }}>
+          INCIDENTE
+        </span>
+      )}
     </div>
   );
 }
@@ -88,6 +126,7 @@ const PRIORITY_LABELS: Record<string, { label: string; dotColor: string }> = {
 export default function TasksPage() {
   const { selectedTeam, loading: teamLoading } = useSelectedTeam();
   const [tasks, setTasks] = useState<CurrentTask[]>([]);
+  const [tempoMeta, setTempoMeta] = useState<TempoMeta | null>(null);
   const [workload, setWorkload] = useState<WorkloadEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -103,16 +142,19 @@ export default function TasksPage() {
       fetch(`/api/current-tasks?teamConfigId=${selectedTeam.id}`).then(async (r) => {
         const source = r.headers.get("X-Data-Source");
         const cached = r.headers.get("X-Cached-At");
-        const data = await r.json();
-        return { data, source, cached };
-      }).catch(() => ({ data: [], source: "unavailable", cached: null })),
+        const json = await r.json();
+        const taskList = Array.isArray(json) ? json : (json?.tasks ?? []);
+        const meta = json?.tempoEmEtapaMeta ?? null;
+        return { taskList, meta, source, cached };
+      }).catch(() => ({ taskList: [], meta: null, source: "unavailable", cached: null })),
       fetch(`/api/workload?teamConfigId=${selectedTeam.id}`).then(async (r) => {
         const source = r.headers.get("X-Data-Source");
         const data = await r.json();
         return { data, source };
       }).catch(() => ({ data: [], source: "unavailable" })),
     ]).then(([tasksResult, workloadResult]) => {
-      setTasks(Array.isArray(tasksResult.data) ? tasksResult.data : []);
+      setTasks(Array.isArray(tasksResult.taskList) ? tasksResult.taskList : []);
+      setTempoMeta(tasksResult.meta);
       setWorkload(Array.isArray(workloadResult.data) ? workloadResult.data : []);
       setLastUpdated(new Date());
       const isStale = tasksResult.source === "cache" || tasksResult.source === "unavailable"
@@ -130,14 +172,12 @@ export default function TasksPage() {
   const totalAll      = totalResolved + totalActive;
   const progressPct   = totalAll > 0 ? Math.round((totalResolved / totalAll) * 100) : 0;
 
-  // Group tasks by priority for kanban
   const tasksByPriority = PRIORITY_ORDER.reduce<Record<string, CurrentTask[]>>((acc, p) => {
     const key = p ?? "null";
     acc[key] = activeTasks.filter((t) => (t.priority ?? null) === p);
     return acc;
   }, {});
 
-  // Only show columns that have tasks or are Alta/Média/Baixa
   const kanbanCols = ["Alta", "Média", "Baixa"].filter((p) =>
     tasksByPriority[p]?.length > 0 || tasksByPriority["null"]?.length > 0
   );
@@ -170,6 +210,9 @@ export default function TasksPage() {
               {selectedTeam?.teamName ?? "—"}
             </span>
             <span style={{ fontSize: 12, color: "var(--muted)" }}>· Tarefas em andamento</span>
+            {tempoMeta && !loading && (
+              <ReliabilityIndicator status={tempoMeta.status} incidentId={tempoMeta.incidentId} />
+            )}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
@@ -267,11 +310,10 @@ export default function TasksPage() {
       {/* ── Priority Kanban ── */}
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${uniqueCols.length}, 1fr)`, gap: 16, alignItems: "start" }}>
         {uniqueCols.map((priority) => {
-          const tasks = tasksByPriority[priority] ?? [];
+          const cols = tasksByPriority[priority] ?? [];
           const meta = PRIORITY_LABELS[priority];
           return (
             <div key={priority} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {/* Column header */}
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: meta.dotColor, display: "inline-block", flexShrink: 0 }} />
                 <span style={{ fontSize: 11, fontWeight: 700, color: "var(--secondary)", letterSpacing: "0.8px" }}>{meta.label}</span>
@@ -281,16 +323,15 @@ export default function TasksPage() {
                   border: "1px solid var(--border)",
                   padding: "1px 7px", borderRadius: 5,
                 }}>
-                  {tasks.length}
+                  {cols.length}
                 </span>
               </div>
 
-              {/* Task cards */}
               {loading ? (
                 [1, 2].map((i) => (
                   <div key={i} className="skeleton" style={{ height: 140, borderRadius: 12 }} />
                 ))
-              ) : tasks.length === 0 ? (
+              ) : cols.length === 0 ? (
                 <div style={{
                   border: "1.5px dashed var(--border)", borderRadius: 12,
                   padding: "28px 16px", textAlign: "center",
@@ -299,8 +340,8 @@ export default function TasksPage() {
                   Nenhuma tarefa
                 </div>
               ) : (
-                tasks.map((task) => (
-                  <TaskCard key={task.userId} task={task} />
+                cols.map((task) => (
+                  <TaskCard key={task.userId} task={task} tempoMeta={tempoMeta} />
                 ))
               )}
             </div>
@@ -312,8 +353,7 @@ export default function TasksPage() {
   );
 }
 
-/* ── Task card sub-component ── */
-function TaskCard({ task }: { task: CurrentTask }) {
+function TaskCard({ task, tempoMeta }: { task: CurrentTask; tempoMeta: TempoMeta | null }) {
   return (
     <div style={{
       background: "var(--surface)", border: "1px solid var(--border)",
@@ -321,7 +361,6 @@ function TaskCard({ task }: { task: CurrentTask }) {
       boxShadow: "0 1px 3px rgba(15,23,42,0.05)",
       display: "flex", flexDirection: "column", gap: 10,
     }}>
-      {/* Badges row */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         <PriorityBadge priority={task.priority} />
         {task.currentStage && (
@@ -335,7 +374,6 @@ function TaskCard({ task }: { task: CurrentTask }) {
         )}
       </div>
 
-      {/* Title */}
       <p style={{
         fontSize: 14, fontWeight: 700, color: "var(--text)",
         lineHeight: 1.35, letterSpacing: "-0.2px",
@@ -343,7 +381,6 @@ function TaskCard({ task }: { task: CurrentTask }) {
         {task.eventTitle ?? "Tarefa sem título"}
       </p>
 
-      {/* Description */}
       <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.4 }}>
         {task.projectName
           ? `Projeto: ${task.projectName}`
@@ -351,17 +388,20 @@ function TaskCard({ task }: { task: CurrentTask }) {
         {task.businessMinutesInStage !== null && ` · ${formatMinutes(task.businessMinutesInStage)} nesta etapa`}
       </p>
 
-      {/* Footer: avatar + time */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 6, borderTop: "1px solid var(--border)" }}>
         <Avatar name={task.userName} url={task.avatarUrl} size={26} />
-        {task.businessMinutesInStage !== null && (
-          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--muted)" }}>
-            <Clock size={11} />
-            {formatMinutes(task.businessMinutesInStage)}
-          </span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {tempoMeta && task.businessMinutesInStage !== null && (
+            <ReliabilityIndicator status={tempoMeta.status} incidentId={tempoMeta.incidentId} />
+          )}
+          {task.businessMinutesInStage !== null && (
+            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--muted)" }}>
+              <Clock size={11} />
+              {formatMinutes(task.businessMinutesInStage)}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
