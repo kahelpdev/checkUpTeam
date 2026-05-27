@@ -19,6 +19,7 @@ interface Member {
   qaRejections: number;
   qaHitRate: number | null;
   qaStatus: string | null;
+  rejectionsToday: number;
 }
 
 interface TeamKpi {
@@ -54,7 +55,7 @@ interface ApiResponse {
   reprovaMeta?: ReprovaMeta;
 }
 
-type SortKey = "qaRejections" | "qaSubmissions" | "qaHitRate" | "qaStatus";
+type SortKey = "rejectionsToday" | "qaRejections" | "qaSubmissions" | "qaHitRate" | "qaStatus";
 
 const COLORS = ["#242873", "#78BFA5", "#E8A020", "#DC3545", "#8A8FAF", "#F2DFBB"];
 
@@ -147,6 +148,7 @@ export default function ReprovaPage() {
   };
 
   const meta = data?.reprovaMeta;
+  const totalRejectionsToday = data?.members?.reduce((sum, m) => sum + (m.rejectionsToday ?? 0), 0) ?? 0;
 
   if (teamLoading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 256, color: "var(--muted)" }}>
@@ -216,7 +218,9 @@ export default function ReprovaPage() {
 
           <div style={{ position: "relative" }}>
             <KpiCard label="Total Reprovas" value={data.teamKpi.totalRejections}
-              icon={<AlertTriangle size={16} color="#DC3545" />} accent="danger" />
+              icon={<AlertTriangle size={16} color="#DC3545" />} accent="danger"
+              delta={totalRejectionsToday > 0 ? `+${totalRejectionsToday} hoje` : undefined}
+              deltaType={totalRejectionsToday > 0 ? "down" : "neutral"} />
             {!loading && meta?.qaRejectionsWeek && (
               <div style={{ position: "absolute", top: 10, right: 10 }}>
                 <ReliabilityIndicator status={meta.qaRejectionsWeek.status} incidentId={meta.qaRejectionsWeek.incidentId} />
@@ -281,13 +285,13 @@ export default function ReprovaPage() {
           <thead>
             <tr style={{ background: "var(--bg)" }}>
               <th style={{ padding: "10px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Desenvolvedor</th>
-              {(["qaRejections", "qaSubmissions", "qaHitRate", "qaStatus"] as SortKey[]).map((k) => (
+              {(["rejectionsToday", "qaRejections", "qaSubmissions", "qaHitRate", "qaStatus"] as SortKey[]).map((k) => (
                 <th
                   key={k}
                   onClick={() => handleSort(k)}
                   style={{ padding: "10px 16px", textAlign: "right", fontSize: 11, fontWeight: 700, color: sortKey === k ? "var(--navy)" : "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", cursor: "pointer" }}
                 >
-                  {{ qaRejections: "Reprovas", qaSubmissions: "Submissões", qaHitRate: "Aprovação %", qaStatus: "Status" }[k]}
+                  {{ rejectionsToday: "Hoje", qaRejections: "Reprovas", qaSubmissions: "Submissões", qaHitRate: "Aprovação %", qaStatus: "Status" }[k]}
                   {sortKey === k && (sortDir === "desc" ? " ↓" : " ↑")}
                 </th>
               ))}
@@ -295,10 +299,10 @@ export default function ReprovaPage() {
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={5} style={{ padding: "32px", textAlign: "center", color: "var(--muted)" }}>Carregando...</td></tr>
+              <tr><td colSpan={6} style={{ padding: "32px", textAlign: "center", color: "var(--muted)" }}>Carregando...</td></tr>
             )}
             {!loading && sorted.length === 0 && (
-              <tr><td colSpan={5} style={{ padding: "32px", textAlign: "center", color: "var(--muted)" }}>Sem dados no período.</td></tr>
+              <tr><td colSpan={6} style={{ padding: "32px", textAlign: "center", color: "var(--muted)" }}>Sem dados no período.</td></tr>
             )}
             {sorted.map((m) => (
               <tr key={m.userId} style={{ borderTop: "1px solid var(--border)" }}>
@@ -310,6 +314,9 @@ export default function ReprovaPage() {
                     }
                     <span style={{ fontWeight: 600, color: "var(--navy)" }}>{m.userName}</span>
                   </div>
+                </td>
+                <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: m.rejectionsToday > 0 ? "var(--danger)" : "var(--muted)" }}>
+                  {m.rejectionsToday > 0 ? m.rejectionsToday : "—"}
                 </td>
                 <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: "var(--danger)" }}>{m.qaRejections}</td>
                 <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--muted)" }}>{m.qaSubmissions}</td>

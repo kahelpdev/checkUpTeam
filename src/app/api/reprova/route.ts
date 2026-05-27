@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { CardflowService } from "@/services/cardflow";
-import { format, subDays, parseISO } from "date-fns";
+import { format, subDays, parseISO, addDays } from "date-fns";
+
+// Ajuste de fuso horário (-3h) para agrupamento correto em data local brasileira
+function getLocalDateString(date: Date): string {
+  const adjusted = new Date(date.getTime() - 3 * 60 * 60 * 1000);
+  return adjusted.toISOString().slice(0, 10);
+}
 
 type RankingRow = {
   userId: string;
@@ -86,28 +92,31 @@ export async function GET(req: NextRequest) {
   type ChartPoint = Record<string, string | number>;
   let chartData: ChartPoint[] = [];
   let dailyBreakdown: ChartPoint[] = [];
+  let rejectionsToday: Record<string, number> = {};
 
   if (rankingsRegistry) {
-    // Busca 1 dia antes do período para ter baseline do delta do primeiro dia
-    const snapStart = format(subDays(parseISO(startDate), 1), "yyyy-MM-dd");
+    // 2.1. Calcular Reprovas de Hoje (Fuso Horário Brasil)
+    const todayLocal = new Date();
+    const todayStr = getLocalDateString(todayLocal);
+    const yesterdayStr = getLocalDateString(subDays(todayLocal, 1));
 
-    const snapshots = await prisma.apiSnapshot.findMany({
+    // Busca snapshots próximos de hoje e ontem (margem de 2 dias antes e 1 depois)
+    const dbGteToday = new Date(todayLocal.getTime() - 2 * 24 * 60 * 60 * 1000);
+    const dbLteToday = new Date(todayLocal.getTime() + 24 * 60 * 60 * 1000);
+
+    const todaySnapshots = await prisma.apiSnapshot.findMany({
       where: {
         apiRegistryId: rankingsRegistry.id,
         teamConfigId,
-        capturedAt: {
-          gte: new Date(`${snapStart}T00:00:00`),
-          lte: new Date(`${endDate}T23:59:59`),
-        },
+        capturedAt: { gte: dbGteToday, lte: dbLteToday },
       },
       orderBy: { capturedAt: "asc" },
       select: { payload: true, capturedAt: true },
     });
 
-    // Último snapshot por dia (overwrite garante o mais recente do dia)
-    const lastSnapByDate = new Map<string, Record<string, number>>();
-    for (const snap of snapshots) {
-      const date = snap.capturedAt.toISOString().slice(0, 10);
+    const snapsByLocalDateToday = new Map<string, Record<string, number>>();
+    for (const snap of todaySnapshots) {
+      const dateStr = getLocalDateString(snap.capturedAt);
       const users: Record<string, number> = {};
       if (Array.isArray(snap.payload)) {
         for (const u of snap.payload as Array<Record<string, unknown>>) {
@@ -115,11 +124,63 @@ export async function GET(req: NextRequest) {
           if (name) users[name] = Number(u.qaRejections) || 0;
         }
       }
-      lastSnapByDate.set(date, users);
+      snapsByLocalDateToday.set(dateStr, users);
+    }
+
+    const currToday = snapsByLocalDateToday.get(todayStr) ?? {};
+    const prevYesterday = snapsByLocalDateToday.get(yesterdayStr) ?? {};
+
+    let baseline = prevYesterday;
+    if (Object.keys(baseline).length === 0 && todaySnapshots.length > 0) {
+      const firstSnap = todaySnapshots.find((s) => getLocalDateString(s.capturedAt) === todayStr);
+      if (firstSnap && Array.isArray(firstSnap.payload)) {
+        const users: Record<string, number> = {};
+        for (const u of firstSnap.payload as Array<Record<string, unknown>>) {
+          const name = String(u.userName ?? "");
+          if (name) users[name] = Number(u.qaRejections) || 0;
+        }
+        baseline = users;
+      }
+    }
+
+    for (const name of Object.keys(currToday)) {
+      rejectionsToday[name] = Math.max(0, (currToday[name] ?? 0) - (baseline[name] ?? 0));
+    }
+
+    // 2.2. Agrupamento para Histórico/Breakdown do período selecionado
+    // Para compensar diferenças de fuso horário, buscamos 2 dias antes e 1 dia depois
+    const dbGte = subDays(parseISO(startDate), 2);
+    const dbLte = addDays(parseISO(endDate), 1);
+
+    const snapshots = await prisma.apiSnapshot.findMany({
+      where: {
+        apiRegistryId: rankingsRegistry.id,
+        teamConfigId,
+        capturedAt: { gte: dbGte, lte: dbLte },
+      },
+      orderBy: { capturedAt: "asc" },
+      select: { payload: true, capturedAt: true },
+    });
+
+    const lastSnapByDate = new Map<string, Record<string, number>>();
+    const baselineDate = format(subDays(parseISO(startDate), 1), "yyyy-MM-dd");
+
+    for (const snap of snapshots) {
+      const date = getLocalDateString(snap.capturedAt);
+      if (date >= baselineDate && date <= endDate) {
+        const users: Record<string, number> = {};
+        if (Array.isArray(snap.payload)) {
+          for (const u of snap.payload as Array<Record<string, unknown>>) {
+            const name = String(u.userName ?? "");
+            if (name) users[name] = Number(u.qaRejections) || 0;
+          }
+        }
+        lastSnapByDate.set(date, users);
+      }
     }
 
     const allDates   = [...lastSnapByDate.keys()].sort();
-    const periodDates = allDates.filter((d) => d >= startDate);
+    const periodDates = allDates.filter((d) => d >= startDate && d <= endDate);
 
     // chartData: valor acumulado por dia (gráfico de tendência)
     chartData = periodDates.map((date) => ({
@@ -141,6 +202,12 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Mapeia rejectionsToday para os membros da lista
+  const membersWithToday = members.map((m) => ({
+    ...m,
+    rejectionsToday: rejectionsToday[m.userName] ?? 0,
+  }));
+
   // ── 3. Trust Layer ─────────────────────────────────────────────────────────
   const metricKeys = ["dev_reprova_summary", "dev_alerta_comportamental", "qa_rejections_semana"];
   const period = format(new Date(), "yyyy-MM-dd");
@@ -158,7 +225,7 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({
-    members,
+    members: membersWithToday,
     teamKpi: {
       totalSubmissions,
       totalRejections,
