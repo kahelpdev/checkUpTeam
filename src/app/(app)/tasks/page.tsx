@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { useSelectedTeam } from "@/hooks/useTeam";
-import { Clock, RefreshCw, Plus } from "lucide-react";
+import { useFilters } from "@/hooks/useFilters";
+import { FilterBar } from "@/components/ui/FilterBar";
+import { Clock } from "lucide-react";
 
 interface CurrentTask {
   userId: string;
@@ -124,7 +125,7 @@ const PRIORITY_LABELS: Record<string, { label: string; dotColor: string }> = {
 };
 
 export default function TasksPage() {
-  const { selectedTeam, loading: teamLoading } = useSelectedTeam();
+  const { selectedTeam, teams, selectTeam, selectedId, loading: teamLoading } = useFilters();
   const [tasks, setTasks] = useState<CurrentTask[]>([]);
   const [tempoMeta, setTempoMeta] = useState<TempoMeta | null>(null);
   const [workload, setWorkload] = useState<WorkloadEntry[]>([]);
@@ -196,54 +197,37 @@ export default function TasksPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
 
       {/* ── Page header ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 30, fontWeight: 800, color: "var(--text)", letterSpacing: "-0.8px", lineHeight: 1.1, marginBottom: 8 }}>
             Central de Tarefas
           </h1>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{
-              fontSize: 11, fontWeight: 600, color: "var(--secondary)",
-              background: "var(--surface-2)", border: "1px solid var(--border)",
-              padding: "3px 10px", borderRadius: 20,
-            }}>
-              {selectedTeam?.teamName ?? "—"}
-            </span>
-            <span style={{ fontSize: 12, color: "var(--muted)" }}>· Tarefas em andamento</span>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>Tarefas em andamento</span>
             {tempoMeta && !loading && (
               <ReliabilityIndicator status={tempoMeta.status} incidentId={tempoMeta.incidentId} />
             )}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
           {lastUpdated && (
             <span style={{ fontSize: 11, color: "var(--muted)" }}>
               Atualizado às {lastUpdated.toLocaleTimeString("pt-BR")}
             </span>
           )}
-          <button
-            onClick={fetchAll}
-            disabled={loading}
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "8px 14px", borderRadius: 8,
-              background: "var(--surface)", border: "1px solid var(--border)",
-              fontSize: 12, fontWeight: 600, color: "var(--secondary)",
-              cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1,
-            }}
-          >
-            <RefreshCw size={13} style={loading ? { animation: "spin 1s linear infinite" } : {}} />
-            Atualizar
-          </button>
-          <button style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "8px 16px", borderRadius: 8,
-            background: "var(--primary)", border: "none",
-            fontSize: 12, fontWeight: 600, color: "#fff", cursor: "pointer",
-            boxShadow: "0 2px 8px rgba(0,102,255,0.28)",
-          }}>
-            <Plus size={14} /> Nova Tarefa
-          </button>
+          <FilterBar
+            teams={teams}
+            selectedId={selectedId}
+            onTeamChange={selectTeam}
+            startDate=""
+            endDate=""
+            onStartDate={() => {}}
+            onEndDate={() => {}}
+            onToday={() => {}}
+            onRefresh={fetchAll}
+            loading={loading}
+            showDates={false}
+          />
         </div>
       </div>
 

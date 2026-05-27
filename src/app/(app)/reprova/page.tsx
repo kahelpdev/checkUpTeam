@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { useSelectedTeam } from "@/hooks/useTeam";
+import { useFilters } from "@/hooks/useFilters";
+import { FilterBar } from "@/components/ui/FilterBar";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
@@ -106,7 +107,7 @@ function ReliabilityIndicator({
 }
 
 export default function ReprovaPage() {
-  const { selectedTeam, loading: teamLoading } = useSelectedTeam();
+  const { selectedTeam, teams, selectTeam, selectedId, startDate, endDate, setStartDate, setEndDate, setToday, loading: teamLoading } = useFilters();
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("qaRejections");
@@ -116,11 +117,12 @@ export default function ReprovaPage() {
   const fetchData = useCallback(() => {
     if (!selectedTeam) return;
     setLoading(true);
-    fetch(`/api/reprova?teamConfigId=${selectedTeam.id}`)
+    const params = new URLSearchParams({ teamConfigId: selectedTeam.id, startDate, endDate });
+    fetch(`/api/reprova?${params}`)
       .then((r) => r.json())
       .then((res) => setData(res as ApiResponse))
       .finally(() => setLoading(false));
-  }, [selectedTeam]);
+  }, [selectedTeam, startDate, endDate]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -155,8 +157,19 @@ export default function ReprovaPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
       {/* Header row */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <FilterBar
+          teams={teams}
+          selectedId={selectedId}
+          onTeamChange={selectTeam}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDate={setStartDate}
+          onEndDate={setEndDate}
+          onToday={setToday}
+          onRefresh={fetchData}
+          loading={loading}
+        />
         <button
           onClick={() => data && exportCsv(data.members)}
           style={{
