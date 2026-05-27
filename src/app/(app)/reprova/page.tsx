@@ -210,8 +210,8 @@ export default function ReprovaPage() {
         }}>
           <Clock size={13} />
           <span>
-            <strong>Dados do histórico local</strong> — Calculados com base em capturas periódicas do CardsFlow.
-            {data.cachedAt && ` Última captura do período: ${new Date(data.cachedAt).toLocaleString("pt-BR")}.`}
+            <strong>Métricas acumuladas</strong> — Valores do último snapshot do CardsFlow (janela de 90 dias).
+            {data.cachedAt && ` Atualizado em: ${new Date(data.cachedAt).toLocaleString("pt-BR")}.`}
           </span>
         </div>
       )}

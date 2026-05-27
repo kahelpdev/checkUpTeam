@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Equipe não encontrada" }, { status: 404 });
   }
 
-  // ── 1. Rankings para o período exato via Snapshots (delta) ──────────────────
+  // ── 1. Rankings via último snapshot do período (valores absolutos) ────────────
   let members: RankingRow[] = [];
   let dataSource: "live" | "cache" | "snapshots" = "cache";
   let cachedAt: string | undefined;
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
       select: { payload: true, capturedAt: true },
     });
 
-    // Agrupa por data local
+    // Agrupa por data local (mantém o último snapshot de cada dia)
     const lastSnapByDate = new Map<string, Array<Record<string, unknown>>>();
     for (const snap of snapshots) {
       const date = getLocalDateString(snap.capturedAt);
@@ -95,98 +95,10 @@ export async function GET(req: NextRequest) {
     const periodDates = allDates.filter((d) => d >= startDate && d <= endDate);
 
     if (periodDates.length > 0) {
-      // Coleta todos os usuários únicos
-      const userMap = new Map<string, { userName: string; avatarUrl: string | null }>();
-      for (const date of periodDates) {
-        const payload = lastSnapByDate.get(date) ?? [];
-        for (const u of payload) {
-          const userId = String(u.userId ?? "");
-          const userName = String(u.userName ?? "");
-          if (userId && userName) {
-            userMap.set(userId, {
-              userName,
-              avatarUrl: u.avatarUrl ? String(u.avatarUrl) : null,
-            });
-          }
-        }
-      }
-
-      // Inicializa acumuladores
-      const userStats = new Map<string, { submissions: number; rejections: number; approvals: number }>();
-      for (const userId of userMap.keys()) {
-        userStats.set(userId, { submissions: 0, rejections: 0, approvals: 0 });
-      }
-
-      // Soma deltas diários
-      for (const date of periodDates) {
-        const currPayload = lastSnapByDate.get(date) ?? [];
-        const prevIdx = allDates.indexOf(date) - 1;
-        const prevPayload = prevIdx >= 0 ? (lastSnapByDate.get(allDates[prevIdx]) ?? []) : [];
-
-        const prevMap = new Map<string, Record<string, unknown>>();
-        for (const u of prevPayload) {
-          const userId = String(u.userId ?? "");
-          if (userId) prevMap.set(userId, u);
-        }
-
-        for (const currU of currPayload) {
-          const userId = String(currU.userId ?? "");
-          if (!userId) continue;
-
-          const prevU = prevMap.get(userId);
-
-          const currSub = Number(currU.qaSubmissions) || 0;
-          const currRej = Number(currU.qaRejections) || 0;
-          const currApp = Number(currU.qaApprovals) || 0;
-
-          const prevSub = prevU ? (Number(prevU.qaSubmissions) || 0) : 0;
-          const prevRej = prevU ? (Number(prevU.qaRejections) || 0) : 0;
-          const prevApp = prevU ? (Number(prevU.qaApprovals) || 0) : 0;
-
-          const deltaSub = Math.max(0, currSub - prevSub);
-          const deltaRej = Math.max(0, currRej - prevRej);
-          const deltaApp = Math.max(0, currApp - prevApp);
-
-          const stats = userStats.get(userId)!;
-          stats.submissions += deltaSub;
-          stats.rejections  += deltaRej;
-          stats.approvals   += deltaApp;
-        }
-      }
-
-      // Pega status do último dia
+      // Usa valores ABSOLUTOS do último snapshot do período
       const lastDate = periodDates[periodDates.length - 1];
       const lastPayload = lastSnapByDate.get(lastDate) ?? [];
-      const lastUserStatusMap = new Map<string, { status: string | null; hitRate: number | null }>();
-      for (const u of lastPayload) {
-        const userId = String(u.userId ?? "");
-        if (userId) {
-          lastUserStatusMap.set(userId, {
-            status: u.qaStatus ? String(u.qaStatus) : null,
-            hitRate: u.qaHitRate != null ? Number(u.qaHitRate) : null,
-          });
-        }
-      }
-
-      members = Array.from(userMap.entries()).map(([userId, info]) => {
-        const stats = userStats.get(userId)!;
-        const lastInfo = lastUserStatusMap.get(userId);
-        
-        const hitRate = stats.submissions > 0
-          ? Math.round(((stats.submissions - stats.rejections) / stats.submissions) * 1000) / 10
-          : null;
-
-        return {
-          userId,
-          userName: info.userName,
-          avatarUrl: info.avatarUrl,
-          qaSubmissions: stats.submissions,
-          qaApprovals: stats.approvals,
-          qaRejections: stats.rejections,
-          qaHitRate: hitRate,
-          qaStatus: lastInfo?.status ?? null,
-        };
-      });
+      members = parseRankings(lastPayload);
 
       calculatedFromSnapshots = true;
       dataSource = "snapshots";
