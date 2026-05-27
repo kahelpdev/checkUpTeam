@@ -6,7 +6,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { AlertTriangle, Download, Users, CheckCircle, Clock } from "lucide-react";
+import { AlertTriangle, Download, Users, Clock, GitBranch } from "lucide-react";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
@@ -33,6 +33,12 @@ interface ChartPoint {
   [userName: string]: string | number;
 }
 
+interface DetectedReprovas {
+  byMember: Record<string, number>;
+  byDay: ChartPoint[];
+  total: number;
+}
+
 interface TrustEntry {
   status: "high" | "medium" | "review" | "no_data";
   incidentId: string | null;
@@ -49,6 +55,7 @@ interface ApiResponse {
   teamKpi: TeamKpi;
   chartData: ChartPoint[];
   dailyBreakdown: ChartPoint[];
+  detectedReprovas?: DetectedReprovas;
   dataSource: "live" | "cache" | "snapshots";
   cachedAt?: string;
   reprovaMeta?: ReprovaMeta;
@@ -58,10 +65,12 @@ type SortKey = "qaRejections" | "qaSubmissions" | "qaHitRate" | "qaStatus";
 
 const COLORS = ["#242873", "#78BFA5", "#E8A020", "#DC3545", "#8A8FAF", "#F2DFBB"];
 
-function exportCsv(members: Member[]) {
-  const header = ["Nome", "Submissões", "Aprovações", "Reprovas", "Taxa Aprovação (%)", "Status"];
+function exportCsv(members: Member[], detectedByMember: Record<string, number>) {
+  const header = ["Nome", "Submissões", "Aprovações", "Reprovas (CardsFlow)", "Reprovas Internas", "Taxa Aprovação (%)", "Status"];
   const rows = members.map((m) => [
-    m.userName, m.qaSubmissions, m.qaApprovals, m.qaRejections, m.qaHitRate ?? "", m.qaStatus ?? "",
+    m.userName, m.qaSubmissions, m.qaApprovals, m.qaRejections,
+    detectedByMember[m.userName] ?? 0,
+    m.qaHitRate ?? "", m.qaStatus ?? "",
   ]);
   const csv = [header, ...rows].map((r) => r.join(";")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -137,6 +146,8 @@ export default function ReprovaPage() {
 
   const chartData      = data?.chartData      ?? [];
   const dailyBreakdown = data?.dailyBreakdown ?? [];
+  const detectedReprovas = data?.detectedReprovas;
+  const detectedByMember = detectedReprovas?.byMember ?? {};
   const historyUsers   = chartData.length > 0
     ? Object.keys(chartData[0]).filter((k) => k !== "date")
     : (data?.members ?? []).map((m) => m.userName);
@@ -172,7 +183,7 @@ export default function ReprovaPage() {
           loading={loading}
         />
         <button
-          onClick={() => data && exportCsv(data.members)}
+          onClick={() => data && exportCsv(data.members, detectedByMember)}
           style={{
             display: "flex", alignItems: "center", gap: 6, fontSize: 12,
             padding: "6px 14px", background: "var(--surface)",
@@ -230,7 +241,7 @@ export default function ReprovaPage() {
           </div>
 
           <div style={{ position: "relative" }}>
-            <KpiCard label="Total Reprovas" value={data.teamKpi.totalRejections}
+            <KpiCard label="Reprovas (CardsFlow)" value={data.teamKpi.totalRejections}
               icon={<AlertTriangle size={16} color="#DC3545" />} accent="danger" />
             {!loading && meta?.qaRejectionsWeek && (
               <div style={{ position: "absolute", top: 10, right: 10 }}>
@@ -240,9 +251,10 @@ export default function ReprovaPage() {
           </div>
 
           <KpiCard
-            label="Taxa de Aprovação"
-            value={data.teamKpi.teamHitRate !== null ? `${data.teamKpi.teamHitRate}%` : "—"}
-            icon={<CheckCircle size={16} color="#78BFA5" />} accent="sage"
+            label="Reprovas Internas"
+            value={detectedReprovas?.total ?? "—"}
+            icon={<GitBranch size={16} color="#7C3AED" />}
+            accent="navy"
           />
 
           <div style={{ position: "relative" }}>
@@ -302,40 +314,54 @@ export default function ReprovaPage() {
                   onClick={() => handleSort(k)}
                   style={{ padding: "10px 16px", textAlign: "right", fontSize: 11, fontWeight: 700, color: sortKey === k ? "var(--navy)" : "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", cursor: "pointer" }}
                 >
-                  {{ qaRejections: "Reprovas", qaSubmissions: "Submissões", qaHitRate: "Aprovação %", qaStatus: "Status" }[k]}
+                  {{ qaRejections: "Reprovas CF", qaSubmissions: "Submissões", qaHitRate: "Aprovação %", qaStatus: "Status" }[k]}
                   {sortKey === k && (sortDir === "desc" ? " ↓" : " ↑")}
                 </th>
               ))}
+              <th style={{ padding: "10px 16px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                Internas
+              </th>
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={5} style={{ padding: "32px", textAlign: "center", color: "var(--muted)" }}>Carregando...</td></tr>
+              <tr><td colSpan={6} style={{ padding: "32px", textAlign: "center", color: "var(--muted)" }}>Carregando...</td></tr>
             )}
             {!loading && sorted.length === 0 && (
-              <tr><td colSpan={5} style={{ padding: "32px", textAlign: "center", color: "var(--muted)" }}>Sem dados no período.</td></tr>
+              <tr><td colSpan={6} style={{ padding: "32px", textAlign: "center", color: "var(--muted)" }}>Sem dados no período.</td></tr>
             )}
-            {sorted.map((m) => (
-              <tr key={m.userId} style={{ borderTop: "1px solid var(--border)" }}>
-                <td style={{ padding: "10px 20px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    {m.avatarUrl
-                      ? <img src={m.avatarUrl} alt={m.userName} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} />
-                      : <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--navy)", color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{m.userName.charAt(0)}</div>
-                    }
-                    <span style={{ fontWeight: 600, color: "var(--navy)" }}>{m.userName}</span>
-                  </div>
-                </td>
-                <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: "var(--danger)" }}>{m.qaRejections}</td>
-                <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--muted)" }}>{m.qaSubmissions}</td>
-                <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--muted)" }}>{m.qaHitRate !== null ? `${m.qaHitRate}%` : "—"}</td>
-                <td style={{ padding: "10px 16px", textAlign: "right" }}>
-                  <StatusBadge status={m.qaStatus} />
-                </td>
-              </tr>
-            ))}
+            {sorted.map((m) => {
+              const internalCount = detectedByMember[m.userName] ?? 0;
+              return (
+                <tr key={m.userId} style={{ borderTop: "1px solid var(--border)" }}>
+                  <td style={{ padding: "10px 20px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      {m.avatarUrl
+                        ? <img src={m.avatarUrl} alt={m.userName} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} />
+                        : <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--navy)", color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{m.userName.charAt(0)}</div>
+                      }
+                      <span style={{ fontWeight: 600, color: "var(--navy)" }}>{m.userName}</span>
+                    </div>
+                  </td>
+                  <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: "var(--danger)" }}>{m.qaRejections}</td>
+                  <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--muted)" }}>{m.qaSubmissions}</td>
+                  <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--muted)" }}>{m.qaHitRate !== null ? `${m.qaHitRate}%` : "—"}</td>
+                  <td style={{ padding: "10px 16px", textAlign: "right" }}>
+                    <StatusBadge status={m.qaStatus} />
+                  </td>
+                  <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: internalCount > 0 ? 700 : 400, color: internalCount > 0 ? "#7C3AED" : "var(--muted)" }}>
+                    {internalCount > 0 ? internalCount : "—"}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+        {/* Legenda */}
+        <div style={{ padding: "8px 20px", borderTop: "1px solid var(--border)", background: "var(--bg)", fontSize: 10, color: "var(--muted)", display: "flex", gap: 20 }}>
+          <span><strong>Reprovas CF</strong> = registradas pelo CardsFlow (qaRejections)</span>
+          <span><strong style={{ color: "#7C3AED" }}>Internas</strong> = detectadas por movimentação de estágio QA→Dev</span>
+        </div>
       </div>
 
       {/* Gráfico histórico */}
@@ -358,28 +384,24 @@ export default function ReprovaPage() {
         </div>
       )}
 
-      {/* Breakdown por dia */}
+      {/* Breakdown por dia — CardsFlow */}
       {dailyBreakdown.length > 0 && (
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(36,40,115,0.05)" }}>
           <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
-            <p style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)", margin: 0 }}>Reprovas por Dia</p>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)", margin: 0 }}>Reprovas por Dia (CardsFlow)</p>
             <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Reprovas novas registradas em cada dia do período</p>
           </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: "var(--bg)" }}>
-                  <th style={{ padding: "10px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
-                    Data
-                  </th>
+                  <th style={{ padding: "10px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>Data</th>
                   {historyUsers.map((name) => (
                     <th key={name} style={{ padding: "10px 16px", textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
                       {name.split(" ")[0]}
                     </th>
                   ))}
-                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Total
-                  </th>
+                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -393,30 +415,19 @@ export default function ReprovaPage() {
                       {historyUsers.map((name) => {
                         const val = Number(row[name]) || 0;
                         return (
-                          <td key={name} style={{
-                            padding: "9px 16px", textAlign: "center",
-                            fontWeight: val > 0 ? 700 : 400,
-                            color: val > 0 ? "var(--danger)" : "var(--muted)",
-                          }}>
+                          <td key={name} style={{ padding: "9px 16px", textAlign: "center", fontWeight: val > 0 ? 700 : 400, color: val > 0 ? "var(--danger)" : "var(--muted)" }}>
                             {val > 0 ? val : "—"}
                           </td>
                         );
                       })}
-                      <td style={{
-                        padding: "9px 16px", textAlign: "center",
-                        fontWeight: dayTotal > 0 ? 700 : 400,
-                        color: dayTotal > 0 ? "var(--navy)" : "var(--muted)",
-                      }}>
+                      <td style={{ padding: "9px 16px", textAlign: "center", fontWeight: dayTotal > 0 ? 700 : 400, color: dayTotal > 0 ? "var(--navy)" : "var(--muted)" }}>
                         {dayTotal > 0 ? dayTotal : "—"}
                       </td>
                     </tr>
                   );
                 })}
-                {/* Linha de totais */}
                 <tr style={{ borderTop: "2px solid var(--border)", background: "var(--bg)" }}>
-                  <td style={{ padding: "10px 20px", fontWeight: 700, color: "var(--navy)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Total período
-                  </td>
+                  <td style={{ padding: "10px 20px", fontWeight: 700, color: "var(--navy)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>Total período</td>
                   {historyUsers.map((name) => {
                     const colTotal = dailyBreakdown.reduce((s, row) => s + (Number(row[name]) || 0), 0);
                     return (
@@ -431,6 +442,71 @@ export default function ReprovaPage() {
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Breakdown por dia — Internas (detectadas) */}
+      {detectedReprovas && detectedReprovas.total > 0 && (
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(36,40,115,0.05)" }}>
+          <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#7C3AED", margin: 0 }}>Reprovas Internas por Dia</p>
+            <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Detectadas por movimentação de estágio QA → Desenvolvimento</p>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            {(() => {
+              const detUsers = Object.keys(detectedByMember);
+              return (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: "var(--bg)" }}>
+                      <th style={{ padding: "10px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>Data</th>
+                      {detUsers.map((name) => (
+                        <th key={name} style={{ padding: "10px 16px", textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
+                          {name.split(" ")[0]}
+                        </th>
+                      ))}
+                      <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 11, fontWeight: 700, color: "#7C3AED", textTransform: "uppercase", letterSpacing: "0.5px" }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detectedReprovas.byDay.map((row) => {
+                      const dayTotal = detUsers.reduce((s, n) => s + (Number(row[n]) || 0), 0);
+                      if (dayTotal === 0) return null;
+                      return (
+                        <tr key={String(row.date)} style={{ borderTop: "1px solid var(--border)" }}>
+                          <td style={{ padding: "9px 20px", fontWeight: 600, color: "var(--secondary)", whiteSpace: "nowrap" }}>
+                            {String(row.date).slice(5).replace("-", "/")}
+                          </td>
+                          {detUsers.map((name) => {
+                            const val = Number(row[name]) || 0;
+                            return (
+                              <td key={name} style={{ padding: "9px 16px", textAlign: "center", fontWeight: val > 0 ? 700 : 400, color: val > 0 ? "#7C3AED" : "var(--muted)" }}>
+                                {val > 0 ? val : "—"}
+                              </td>
+                            );
+                          })}
+                          <td style={{ padding: "9px 16px", textAlign: "center", fontWeight: 700, color: "#7C3AED" }}>
+                            {dayTotal}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr style={{ borderTop: "2px solid var(--border)", background: "var(--bg)" }}>
+                      <td style={{ padding: "10px 20px", fontWeight: 700, color: "#7C3AED", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>Total período</td>
+                      {detUsers.map((name) => (
+                        <td key={name} style={{ padding: "10px 16px", textAlign: "center", fontWeight: 700, color: "#7C3AED" }}>
+                          {detectedByMember[name] ?? 0}
+                        </td>
+                      ))}
+                      <td style={{ padding: "10px 16px", textAlign: "center", fontWeight: 700, color: "#7C3AED" }}>
+                        {detectedReprovas.total}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              );
+            })()}
           </div>
         </div>
       )}

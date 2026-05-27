@@ -170,7 +170,56 @@ export async function GET(req: NextRequest) {
     ? Math.round(((totalSubmissions - totalRejections) / totalSubmissions) * 1000) / 10
     : null;
 
-  // ── 3. Trust Layer ─────────────────────────────────────────────────────────
+  // ── 3. Reprovas internas detectadas por movimentação de estágio ─────────────
+  // Busca com buffer UTC e filtra por data local (UTC-3)
+  const detectedRaw = await prisma.detectedReprova.findMany({
+    where: {
+      teamConfigId,
+      detectedAt: {
+        gte: new Date(`${format(subDays(parseISO(startDate), 1), "yyyy-MM-dd")}T00:00:00.000Z`),
+        lte: new Date(`${format(addDays(parseISO(endDate), 1), "yyyy-MM-dd")}T23:59:59.999Z`),
+      },
+    },
+    select: { userId: true, userName: true, detectedAt: true },
+    orderBy: { detectedAt: "asc" },
+  });
+  const detectedRows = detectedRaw.filter((r) => {
+    const d = getLocalDateString(r.detectedAt);
+    return d >= startDate && d <= endDate;
+  });
+
+  // Agrupa por membro
+  const detectedByMember: Record<string, number> = {};
+  for (const r of detectedRows) {
+    const name = r.userName;
+    detectedByMember[name] = (detectedByMember[name] ?? 0) + 1;
+  }
+
+  // Agrupa por dia (UTC-3)
+  const detectedByDay: Record<string, Record<string, number>> = {};
+  for (const r of detectedRows) {
+    const day = getLocalDateString(r.detectedAt);
+    if (!detectedByDay[day]) detectedByDay[day] = {};
+    const name = r.userName;
+    detectedByDay[day][name] = (detectedByDay[day][name] ?? 0) + 1;
+  }
+
+  // Gera array de dias dentro do período
+  const detectedDailyBreakdown: ChartPoint[] = [];
+  const start = parseISO(startDate);
+  const end   = parseISO(endDate);
+  for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
+    const day = format(d, "yyyy-MM-dd");
+    detectedDailyBreakdown.push({ date: day, ...(detectedByDay[day] ?? {}) });
+  }
+
+  const detectedReprovas = {
+    byMember: detectedByMember,
+    byDay:    detectedDailyBreakdown,
+    total:    detectedRows.length,
+  };
+
+  // ── 4. Trust Layer ─────────────────────────────────────────────────────────
   const metricKeys = ["dev_reprova_summary", "dev_alerta_comportamental", "qa_rejections_semana"];
   const period = format(new Date(), "yyyy-MM-dd");
 
@@ -196,6 +245,7 @@ export async function GET(req: NextRequest) {
     },
     chartData,
     dailyBreakdown,
+    detectedReprovas,
     dataSource,
     cachedAt,
     reprovaMeta: {

@@ -16,8 +16,9 @@ model TeamsConfig {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  snapshots ApiSnapshot[]
-  reprovas  ReprovaHistory[]
+  snapshots        ApiSnapshot[]
+  reprovas         ReprovaHistory[]
+  detectedReprovas DetectedReprova[]
 
   @@map("teams_config")
 }
@@ -55,6 +56,28 @@ model ApiSnapshot {
   @@index([apiRegistryId, capturedAt])
   @@index([teamConfigId, capturedAt])
   @@map("api_snapshots")
+}
+
+// Reprovas detectadas por inteligência (análise de movimentação de estágios)
+model DetectedReprova {
+  id               String   @id @default(uuid())
+  eventId          String   @map("event_id")
+  eventTitle       String?  @map("event_title")
+  teamConfigId     String   @map("team_config_id")
+  userId           String   @map("user_id")
+  userName         String   @map("user_name")
+  fromStage        String   @map("from_stage")
+  toStage          String   @map("to_stage")
+  detectedAt       DateTime @default(now()) @map("detected_at")
+  sourceSnapshotId String   @map("source_snapshot_id")
+
+  teamConfig TeamsConfig @relation(fields: [teamConfigId], references: [id])
+
+  @@unique([eventId, sourceSnapshotId])
+  @@index([teamConfigId, detectedAt])
+  @@index([userId, detectedAt])
+  @@index([eventId])
+  @@map("detected_reprovas")
 }
 
 // Configurações dinâmicas do app (ex: FLOW_API_BASE_URL editável pelo painel)
