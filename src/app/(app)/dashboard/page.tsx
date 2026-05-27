@@ -143,18 +143,20 @@ export default function DashboardPage() {
   const [dataLoading, setDataLoading] = useState(false);
   const [dataSource, setDataSource] = useState<"live" | "cache" | null>(null);
   const [cachedAt, setCachedAt] = useState<string | null>(null);
+  const [demandaMeta, setDemandaMeta] = useState<{ status: MetricMeta["status"]; incidentId?: string } | null>(null);
+  const [tasksMeta, setTasksMeta] = useState<{ status: MetricMeta["status"]; incidentId?: string } | null>(null);
 
   useEffect(() => {
     if (!selectedTeam) return;
     setDataLoading(true);
     setDataSource(null);
     setCachedAt(null);
-    
-    const keys = "total_cards_abertos,eventos_pendentes,sla_em_risco,resolvidos_hoje";
+
+    const keys = "total_cards_abertos,eventos_pendentes,sla_em_risco,resolvidos_hoje,demanda_diaria_serie,current_tasks_by_member";
     const qMetrics = `?keys=${keys}&teamId=${selectedTeam.id}`;
     const q = `?teamConfigId=${selectedTeam.id}`;
     const safe = (url: string) => fetch(url).then((r) => r.json()).catch(() => null);
-    
+
     Promise.all([
       safe(`/api/radar/metrics${qMetrics}`),
       safe(`/api/current-tasks${q}`),
@@ -180,19 +182,26 @@ export default function DashboardPage() {
           slaEmRisco: findMetric("sla_em_risco", 0),
           resolvidosHoje: findMetric("resolvidos_hoje", 0),
         });
+
+        const demandaM = list.find((x: any) => x.key === "demanda_diaria_serie");
+        if (demandaM) setDemandaMeta({ status: demandaM.status ?? "no_data", incidentId: demandaM.incidentId });
+
+        const tasksM = list.find((x: any) => x.key === "current_tasks_by_member");
+        if (tasksM) setTasksMeta({ status: tasksM.status ?? "no_data", incidentId: tasksM.incidentId });
       }
-      
-      if (Array.isArray(tasksRes)) setMembers(tasksRes);
-      if (demandRes?.data)         setDemand(demandRes.data);
+
+      // E4: /api/current-tasks agora retorna { tasks, tempoEmEtapaMeta }
+      const taskList = Array.isArray(tasksRes) ? tasksRes : (tasksRes?.tasks ?? []);
+      setMembers(taskList);
+      if (demandRes?.data)  setDemand(demandRes.data);
       if (reprovaRes?.members) {
         const sorted = [...reprovaRes.members]
           .sort((a: ReprovaPreview, b: ReprovaPreview) => b.qaRejections - a.qaRejections)
           .slice(0, 5);
         setReprova(sorted);
       }
-      
-      const src = demandRes?.dataSource ?? (Array.isArray(tasksRes) && tasksRes.length > 0 ? "live" : null);
-      setDataSource(src);
+
+      setDataSource(demandRes?.dataSource ?? null);
       setCachedAt(demandRes?.capturedAt ?? null);
     }).finally(() => setDataLoading(false));
   }, [selectedTeam]);
@@ -421,7 +430,12 @@ export default function DashboardPage() {
             padding: "18px 24px", borderBottom: "1px solid var(--border)",
             display: "flex", alignItems: "center", justifyContent: "space-between",
           }}>
-            <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>Tendência de Demanda — 30 dias</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>Tendência de Demanda — 30 dias</p>
+              {!dataLoading && demandaMeta && (
+                <ReliabilityIndicator status={demandaMeta.status} incidentId={demandaMeta.incidentId} />
+              )}
+            </div>
             <div style={{ display: "flex", gap: 14 }}>
               {[["#94A3B8", "Ideal"], ["var(--primary)", "Criados"], ["var(--success)", "Resolvidos"]].map(([color, label]) => (
                 <span key={label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--muted)" }}>
@@ -468,7 +482,12 @@ export default function DashboardPage() {
             padding: "18px 20px", borderBottom: "1px solid var(--border)",
             display: "flex", alignItems: "center", justifyContent: "space-between",
           }}>
-            <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>Atividade Recente</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>Atividade Recente</p>
+              {!dataLoading && tasksMeta && (
+                <ReliabilityIndicator status={tasksMeta.status} incidentId={tasksMeta.incidentId} />
+              )}
+            </div>
             <a href="/tasks" style={{ fontSize: 12, fontWeight: 600, color: "var(--primary)", textDecoration: "none" }}>
               Ver todos
             </a>
