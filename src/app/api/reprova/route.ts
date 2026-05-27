@@ -1,43 +1,83 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { format } from "date-fns";
+import { CardflowService } from "@/services/cardflow";
+import { format, subDays, parseISO } from "date-fns";
+
+type RankingRow = {
+  userId: string;
+  userName: string;
+  avatarUrl: string | null;
+  qaSubmissions: number;
+  qaApprovals: number;
+  qaRejections: number;
+  qaHitRate: number | null;
+  qaStatus: string | null;
+};
+
+function parseRankings(raw: unknown): RankingRow[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as Record<string, unknown>[]).map((r) => ({
+    userId:        String(r.userId ?? ""),
+    userName:      String(r.userName ?? ""),
+    avatarUrl:     r.avatarUrl ? String(r.avatarUrl) : null,
+    qaSubmissions: Number(r.qaSubmissions) || 0,
+    qaApprovals:   Number(r.qaApprovals)   || 0,
+    qaRejections:  Number(r.qaRejections)  || 0,
+    qaHitRate:     r.qaHitRate  != null ? Number(r.qaHitRate)  : null,
+    qaStatus:      r.qaStatus   ? String(r.qaStatus)   : null,
+  }));
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const teamConfigId = searchParams.get("teamConfigId");
-  const startDate = searchParams.get("startDate");
-  const endDate = searchParams.get("endDate");
+  const startDate = searchParams.get("startDate") ?? format(new Date(), "yyyy-MM-dd");
+  const endDate   = searchParams.get("endDate")   ?? format(new Date(), "yyyy-MM-dd");
 
   if (!teamConfigId) {
     return NextResponse.json({ error: "teamConfigId obrigatório" }, { status: 400 });
   }
 
-  const where: Record<string, unknown> = { teamConfigId };
-  if (startDate) where.recordedAt = { gte: new Date(startDate) };
-  if (endDate) {
-    const existingDate = (where.recordedAt as Record<string, unknown>) || {};
-    where.recordedAt = { ...existingDate, lte: new Date(endDate) };
+  const teamConfig = await prisma.teamsConfig.findUnique({ where: { id: teamConfigId } });
+  if (!teamConfig) {
+    return NextResponse.json({ error: "Equipe não encontrada" }, { status: 404 });
   }
 
-  const latest = await prisma.reprovaHistory.findMany({
-    where,
-    orderBy: { recordedAt: "desc" },
-  });
+  // ── 1. Rankings para o período exato via CardsFlow ────────────────────────
+  let rankingsRaw: unknown = null;
+  let dataSource: "live" | "cache" = "live";
+  let cachedAt: string | undefined;
 
-  const byUser = new Map<string, (typeof latest)[0]>();
-  for (const record of latest) {
-    if (!byUser.has(record.userId)) byUser.set(record.userId, record);
+  try {
+    rankingsRaw = await CardflowService.getRankings(teamConfig.teamId, startDate, endDate);
+  } catch {
+    dataSource = "cache";
+    const registry = await prisma.apiRegistry.findFirst({
+      where: { path: "/devbi/rankings", isActive: true },
+      select: { id: true },
+    });
+    if (registry) {
+      const snap = await prisma.apiSnapshot.findFirst({
+        where: { apiRegistryId: registry.id, teamConfigId },
+        orderBy: { capturedAt: "desc" },
+        select: { payload: true, capturedAt: true },
+      });
+      if (snap) {
+        rankingsRaw = snap.payload;
+        cachedAt = snap.capturedAt.toISOString();
+      }
+    }
   }
 
-  const all = Array.from(byUser.values());
-  const totalSubmissions = all.reduce((s, r) => s + r.qaSubmissions, 0);
-  const totalRejections = all.reduce((s, r) => s + r.qaRejections, 0);
-  const teamHitRate =
-    totalSubmissions > 0
-      ? Math.round(((totalSubmissions - totalRejections) / totalSubmissions) * 1000) / 10
-      : null;
+  const members = parseRankings(rankingsRaw);
 
-  // Gráfico histórico: lê api_snapshots de rankings para ter série temporal completa
+  const totalSubmissions = members.reduce((s, m) => s + m.qaSubmissions, 0);
+  const totalRejections  = members.reduce((s, m) => s + m.qaRejections,  0);
+  const teamHitRate = totalSubmissions > 0
+    ? Math.round(((totalSubmissions - totalRejections) / totalSubmissions) * 1000) / 10
+    : null;
+
+  // ── 2. Snapshots diários: gráfico de tendência + breakdown por dia ────────
   const rankingsRegistry = await prisma.apiRegistry.findFirst({
     where: { path: "/devbi/rankings", isActive: true },
     select: { id: true },
@@ -45,77 +85,94 @@ export async function GET(req: NextRequest) {
 
   type ChartPoint = Record<string, string | number>;
   let chartData: ChartPoint[] = [];
+  let dailyBreakdown: ChartPoint[] = [];
 
   if (rankingsRegistry) {
-    const snapshotWhere: Record<string, unknown> = {
-      teamConfigId,
-      apiRegistryId: rankingsRegistry.id,
-    };
-    if (startDate) snapshotWhere.capturedAt = { gte: new Date(startDate) };
-    if (endDate) {
-      const existing = (snapshotWhere.capturedAt as Record<string, unknown>) || {};
-      snapshotWhere.capturedAt = { ...existing, lte: new Date(endDate) };
-    }
+    // Busca 1 dia antes do período para ter baseline do delta do primeiro dia
+    const snapStart = format(subDays(parseISO(startDate), 1), "yyyy-MM-dd");
 
     const snapshots = await prisma.apiSnapshot.findMany({
-      where: snapshotWhere,
+      where: {
+        apiRegistryId: rankingsRegistry.id,
+        teamConfigId,
+        capturedAt: {
+          gte: new Date(`${snapStart}T00:00:00`),
+          lte: new Date(`${endDate}T23:59:59`),
+        },
+      },
       orderBy: { capturedAt: "asc" },
       select: { payload: true, capturedAt: true },
     });
 
-    const byDate = new Map<string, Record<string, number>>();
+    // Último snapshot por dia (overwrite garante o mais recente do dia)
+    const lastSnapByDate = new Map<string, Record<string, number>>();
     for (const snap of snapshots) {
       const date = snap.capturedAt.toISOString().slice(0, 10);
       const users: Record<string, number> = {};
       if (Array.isArray(snap.payload)) {
         for (const u of snap.payload as Array<Record<string, unknown>>) {
           const name = String(u.userName ?? "");
-          if (name) users[name] = parseInt(String(u.qaRejections)) || 0;
+          if (name) users[name] = Number(u.qaRejections) || 0;
         }
       }
-      byDate.set(date, users);
+      lastSnapByDate.set(date, users);
     }
 
-    chartData = Array.from(byDate.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, users]) => ({ date, ...users }));
+    const allDates   = [...lastSnapByDate.keys()].sort();
+    const periodDates = allDates.filter((d) => d >= startDate);
+
+    // chartData: valor acumulado por dia (gráfico de tendência)
+    chartData = periodDates.map((date) => ({
+      date,
+      ...(lastSnapByDate.get(date) ?? {}),
+    }));
+
+    // dailyBreakdown: delta entre dias consecutivos (reprovas novas no dia)
+    dailyBreakdown = periodDates.map((date) => {
+      const curr     = lastSnapByDate.get(date) ?? {};
+      const prevIdx  = allDates.indexOf(date) - 1;
+      const prev     = prevIdx >= 0 ? (lastSnapByDate.get(allDates[prevIdx]) ?? {}) : {};
+      const allNames = new Set([...Object.keys(curr), ...Object.keys(prev)]);
+      const row: ChartPoint = { date };
+      for (const name of allNames) {
+        row[name] = Math.max(0, (curr[name] ?? 0) - (prev[name] ?? 0));
+      }
+      return row;
+    });
   }
 
-  // ── Trust Layer E5 Integration ──
+  // ── 3. Trust Layer ─────────────────────────────────────────────────────────
   const metricKeys = ["dev_reprova_summary", "dev_alerta_comportamental", "qa_rejections_semana"];
   const period = format(new Date(), "yyyy-MM-dd");
 
   const [metricResults, activeIncidents] = await Promise.all([
-    prisma.metricResult.findMany({
-      where: { metricKey: { in: metricKeys }, period },
-    }),
-    prisma.dataIncident.findMany({
-      where: { metricKey: { in: metricKeys }, status: { in: ["open", "investigating"] } },
-    }),
+    prisma.metricResult.findMany({ where: { metricKey: { in: metricKeys }, period } }),
+    prisma.dataIncident.findMany({ where: { metricKey: { in: metricKeys }, status: { in: ["open", "investigating"] } } }),
   ]);
 
   const resMap = new Map(metricResults.map((r) => [r.metricKey, r]));
   const incMap = new Map(activeIncidents.map((i) => [i.metricKey, i.id]));
-
   const trustMeta = (key: string) => ({
     status: (resMap.get(key)?.status ?? "no_data") as "high" | "medium" | "review" | "no_data",
     incidentId: incMap.get(key) ?? null,
   });
 
   return NextResponse.json({
-    members: all,
+    members,
     teamKpi: {
       totalSubmissions,
       totalRejections,
       teamHitRate,
-      alertCount: all.filter((r) => r.qaStatus === "Alerta Comport.").length,
+      alertCount: members.filter((m) => m.qaStatus === "Alerta Comport.").length,
     },
-    history: latest,
     chartData,
+    dailyBreakdown,
+    dataSource,
+    cachedAt,
     reprovaMeta: {
-      devReprova:        trustMeta("dev_reprova_summary"),
-      alertComport:      trustMeta("dev_alerta_comportamental"),
-      qaRejectionsWeek:  trustMeta("qa_rejections_semana"),
+      devReprova:       trustMeta("dev_reprova_summary"),
+      alertComport:     trustMeta("dev_alerta_comportamental"),
+      qaRejectionsWeek: trustMeta("qa_rejections_semana"),
     },
   });
 }
