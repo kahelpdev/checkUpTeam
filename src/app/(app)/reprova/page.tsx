@@ -6,12 +6,11 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { AlertTriangle, Download, Users, CheckCircle } from "lucide-react";
+import { AlertTriangle, Download, Users, CheckCircle, Clock } from "lucide-react";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
 interface Member {
-  id: string;
   userId: string;
   userName: string;
   avatarUrl: string | null;
@@ -20,7 +19,6 @@ interface Member {
   qaRejections: number;
   qaHitRate: number | null;
   qaStatus: string | null;
-  recordedAt: string;
 }
 
 interface TeamKpi {
@@ -49,8 +47,10 @@ interface ReprovaMeta {
 interface ApiResponse {
   members: Member[];
   teamKpi: TeamKpi;
-  history: Member[];
   chartData: ChartPoint[];
+  dailyBreakdown: ChartPoint[];
+  dataSource: "live" | "cache";
+  cachedAt?: string;
   reprovaMeta?: ReprovaMeta;
 }
 
@@ -135,10 +135,11 @@ export default function ReprovaPage() {
     return sortDir === "asc" ? Number(av) - Number(bv) : Number(bv) - Number(av);
   });
 
-  const chartData = data?.chartData ?? [];
-  const historyUsers = chartData.length > 0
+  const chartData      = data?.chartData      ?? [];
+  const dailyBreakdown = data?.dailyBreakdown ?? [];
+  const historyUsers   = chartData.length > 0
     ? Object.keys(chartData[0]).filter((k) => k !== "date")
-    : [...new Set((data?.history ?? []).map((h) => h.userName))];
+    : (data?.members ?? []).map((m) => m.userName);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -182,6 +183,23 @@ export default function ReprovaPage() {
           <Download size={13} /> Exportar CSV
         </button>
       </div>
+
+      {/* Aviso de cache */}
+      {data?.dataSource === "cache" && (
+        <div style={{
+          background: "#FFFBEB", border: "1px solid #FDE68A",
+          borderRadius: 10, padding: "10px 16px",
+          display: "flex", alignItems: "center", gap: 10,
+          fontSize: 12, color: "#92400E",
+        }}>
+          <Clock size={13} />
+          <span>
+            <strong>Dados do cache</strong> — API CardsFlow indisponível.
+            {data.cachedAt && ` Última captura: ${new Date(data.cachedAt).toLocaleString("pt-BR")}.`}
+            {" "}Os números podem não refletir o período exato selecionado.
+          </span>
+        </div>
+      )}
 
       {/* KPIs */}
       {data?.teamKpi && (
@@ -308,7 +326,8 @@ export default function ReprovaPage() {
       {/* Gráfico histórico */}
       {chartData.length > 0 && (
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 20, boxShadow: "0 1px 4px rgba(36,40,115,0.05)" }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)", marginBottom: 16 }}>Evolução de Reprovas por Desenvolvedor</p>
+          <p style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)", marginBottom: 4 }}>Evolução de Reprovas por Desenvolvedor</p>
+          <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 16 }}>Acumulado no período (90 dias de janela)</p>
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#EDE8DE" />
@@ -321,6 +340,83 @@ export default function ReprovaPage() {
               ))}
             </LineChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Breakdown por dia */}
+      {dailyBreakdown.length > 0 && (
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(36,40,115,0.05)" }}>
+          <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)", margin: 0 }}>Reprovas por Dia</p>
+            <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Reprovas novas registradas em cada dia do período</p>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: "var(--bg)" }}>
+                  <th style={{ padding: "10px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
+                    Data
+                  </th>
+                  {historyUsers.map((name) => (
+                    <th key={name} style={{ padding: "10px 16px", textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
+                      {name.split(" ")[0]}
+                    </th>
+                  ))}
+                  <th style={{ padding: "10px 16px", textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--navy)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyBreakdown.map((row) => {
+                  const dayTotal = historyUsers.reduce((s, n) => s + (Number(row[n]) || 0), 0);
+                  return (
+                    <tr key={String(row.date)} style={{ borderTop: "1px solid var(--border)" }}>
+                      <td style={{ padding: "9px 20px", fontWeight: 600, color: "var(--secondary)", whiteSpace: "nowrap" }}>
+                        {String(row.date).slice(5).replace("-", "/")}
+                      </td>
+                      {historyUsers.map((name) => {
+                        const val = Number(row[name]) || 0;
+                        return (
+                          <td key={name} style={{
+                            padding: "9px 16px", textAlign: "center",
+                            fontWeight: val > 0 ? 700 : 400,
+                            color: val > 0 ? "var(--danger)" : "var(--muted)",
+                          }}>
+                            {val > 0 ? val : "—"}
+                          </td>
+                        );
+                      })}
+                      <td style={{
+                        padding: "9px 16px", textAlign: "center",
+                        fontWeight: dayTotal > 0 ? 700 : 400,
+                        color: dayTotal > 0 ? "var(--navy)" : "var(--muted)",
+                      }}>
+                        {dayTotal > 0 ? dayTotal : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {/* Linha de totais */}
+                <tr style={{ borderTop: "2px solid var(--border)", background: "var(--bg)" }}>
+                  <td style={{ padding: "10px 20px", fontWeight: 700, color: "var(--navy)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Total período
+                  </td>
+                  {historyUsers.map((name) => {
+                    const colTotal = dailyBreakdown.reduce((s, row) => s + (Number(row[name]) || 0), 0);
+                    return (
+                      <td key={name} style={{ padding: "10px 16px", textAlign: "center", fontWeight: 700, color: colTotal > 0 ? "var(--danger)" : "var(--muted)" }}>
+                        {colTotal > 0 ? colTotal : "—"}
+                      </td>
+                    );
+                  })}
+                  <td style={{ padding: "10px 16px", textAlign: "center", fontWeight: 700, color: "var(--navy)" }}>
+                    {dailyBreakdown.reduce((s, row) => s + historyUsers.reduce((rs, n) => rs + (Number(row[n]) || 0), 0), 0)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
