@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useSelectedTeam } from "@/hooks/useTeam";
+import { useFilters } from "@/hooks/useFilters";
+import { FilterBar } from "@/components/ui/FilterBar";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
-  TrendingUp, CalendarDays, Download,
-  AlertCircle, AlertTriangle, Activity, Clock,
+  TrendingUp, AlertCircle, AlertTriangle, Activity, Clock,
 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
@@ -130,7 +130,7 @@ function ReliabilityIndicator({
 }
 
 export default function DashboardPage() {
-  const { selectedTeam, loading: teamLoading } = useSelectedTeam();
+  const { selectedTeam, teams, selectTeam, selectedId, startDate, endDate, setStartDate, setEndDate, setToday, loading: teamLoading } = useFilters();
   const [kpis, setKpis] = useState<DashboardKpis>({
     cardsAbertos: defaultMeta(0),
     eventosPendentes: defaultMeta(0),
@@ -154,7 +154,7 @@ export default function DashboardPage() {
 
     const keys = "total_cards_abertos,eventos_pendentes,sla_em_risco,resolvidos_hoje,demanda_diaria_serie,current_tasks_by_member";
     const qMetrics = `?keys=${keys}&teamId=${selectedTeam.id}`;
-    const q = `?teamConfigId=${selectedTeam.id}`;
+    const q = `?teamConfigId=${selectedTeam.id}&startDate=${startDate}&endDate=${endDate}`;
     const safe = (url: string) => fetch(url).then((r) => r.json()).catch(() => null);
 
     Promise.all([
@@ -204,7 +204,7 @@ export default function DashboardPage() {
       setDataSource(demandRes?.dataSource ?? null);
       setCachedAt(demandRes?.capturedAt ?? null);
     }).finally(() => setDataLoading(false));
-  }, [selectedTeam]);
+  }, [selectedTeam, startDate, endDate]);
 
   const alertCount  = reprova.filter((r) => r.qaStatus === "Alerta Comport.").length;
   const slaRisk     = kpis.slaEmRisco.value;
@@ -242,25 +242,17 @@ export default function DashboardPage() {
             Dashboard de Liderança
           </h1>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
-          <button style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "8px 14px", borderRadius: 8,
-            background: "var(--surface)", border: "1px solid var(--border)",
-            fontSize: 12, fontWeight: 600, color: "var(--secondary)", cursor: "pointer",
-          }}>
-            <CalendarDays size={13} /> Período Atual
-          </button>
-          <button style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "8px 16px", borderRadius: 8,
-            background: "var(--primary)", border: "none",
-            fontSize: 12, fontWeight: 600, color: "#fff", cursor: "pointer",
-            boxShadow: "0 2px 8px rgba(0,102,255,0.28)",
-          }}>
-            <Download size={13} /> Exportar
-          </button>
-        </div>
+        <FilterBar
+          teams={teams}
+          selectedId={selectedId}
+          onTeamChange={selectTeam}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDate={setStartDate}
+          onEndDate={setEndDate}
+          onToday={setToday}
+          loading={dataLoading}
+        />
       </div>
 
       {/* ── Cache notice ── */}

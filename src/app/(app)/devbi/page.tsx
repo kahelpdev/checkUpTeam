@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { useSelectedTeam } from "@/hooks/useTeam";
+import { useFilters } from "@/hooks/useFilters";
+import { FilterBar } from "@/components/ui/FilterBar";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   BarChart, Bar,
 } from "recharts";
-import { RefreshCw, TrendingUp, TrendingDown, Trophy, Zap, AlertTriangle, Star, Clock, Users, X, Coffee } from "lucide-react";
-import { format, subDays, parseISO } from "date-fns";
+import { TrendingUp, TrendingDown, Trophy, Zap, AlertTriangle, Star, Clock, X, Coffee } from "lucide-react";
+import { format, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -169,12 +170,10 @@ function KpiCard({
 
 // ─── Main Component ────────────────────────────────────────────────────────
 export default function DevBIDashboard() {
-  const { selectedId, teams, selectTeam } = useSelectedTeam();
+  const { selectedId, teams, selectTeam, startDate, endDate, setStartDate, setEndDate, setToday } = useFilters();
   const [data, setData] = useState<DevBIData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [startDate, setStartDate] = useState(format(subDays(new Date(), 29), "yyyy-MM-dd"));
-  const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [filterUserId, setFilterUserId] = useState("");
   const [filterProject, setFilterProject] = useState("");
   const lastFetch = useRef(0);
@@ -267,28 +266,20 @@ export default function DevBIDashboard() {
           </h1>
           <p style={{ fontSize: 13, color: "var(--muted)" }}>Performance individual e qualidade da equipe no período</p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-            style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "7px 10px", fontSize: 12, color: "var(--text)", background: "var(--surface)", outline: "none" }} />
-          <span style={{ fontSize: 12, color: "var(--muted)" }}>até</span>
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-            style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "7px 10px", fontSize: 12, color: "var(--text)", background: "var(--surface)", outline: "none" }} />
-          <button onClick={fetchData} disabled={loading}
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              background: "var(--primary)", color: "#fff", border: "none",
-              borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer",
-              opacity: loading ? 0.65 : 1,
-              boxShadow: loading ? "none" : "0 2px 8px rgba(0,102,255,0.28)",
-            }}>
-            <RefreshCw size={13} style={{ animation: loading ? "spin 1s linear infinite" : "none" }} />
-            Atualizar
-          </button>
-          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--muted)", cursor: "pointer", marginLeft: 4 }}>
-            <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
-            Auto 60s
-          </label>
-        </div>
+        <FilterBar
+          teams={teams}
+          selectedId={selectedId ?? ""}
+          onTeamChange={selectTeam}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDate={setStartDate}
+          onEndDate={setEndDate}
+          onToday={setToday}
+          onRefresh={fetchData}
+          loading={loading}
+          autoRefresh={autoRefresh}
+          onAutoRefreshChange={setAutoRefresh}
+        />
       </div>
 
       {/* ── Filter Bar ── */}
@@ -297,23 +288,6 @@ export default function DevBIDashboard() {
         background: "var(--surface)", border: "1px solid var(--border)",
         borderRadius: 12, padding: "12px 16px",
       }}>
-        {/* Equipe */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <Users size={13} color="var(--muted)" />
-          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", whiteSpace: "nowrap" }}>Equipe</span>
-        </div>
-        <select
-          value={selectedId ?? ""}
-          onChange={(e) => { selectTeam(e.target.value); }}
-          style={selectStyle}
-        >
-          {teams.map((t) => (
-            <option key={t.id} value={t.id}>{t.teamName}</option>
-          ))}
-        </select>
-
-        <div style={{ width: 1, height: 24, background: "var(--border)", margin: "0 4px" }} />
-
         {/* Colaborador */}
         <select
           value={filterUserId}
