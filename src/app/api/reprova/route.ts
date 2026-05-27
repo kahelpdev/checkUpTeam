@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { CardflowService } from "@/services/cardflow";
-import { format, subDays, parseISO } from "date-fns";
+import { format, subDays, addDays, parseISO } from "date-fns";
 
 type RankingRow = {
   userId: string;
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
 
   // ── 1. Rankings para o período exato via Snapshots (delta) ──────────────────
   let members: RankingRow[] = [];
-  let dataSource: "live" | "cache" = "cache";
+  let dataSource: "live" | "cache" | "snapshots" = "cache";
   let cachedAt: string | undefined;
 
   const rankingsRegistry = await prisma.apiRegistry.findFirst({
@@ -65,16 +65,17 @@ export async function GET(req: NextRequest) {
   let calculatedFromSnapshots = false;
 
   if (rankingsRegistry) {
-    // Busca 1 dia antes do período para ter baseline do delta do primeiro dia
-    const snapStart = format(subDays(parseISO(startDate), 1), "yyyy-MM-dd");
+    // Busca 2 dias antes e 1 dia depois do período para garantir que não haja cortes de fuso horário (UTC)
+    const dbStart = format(subDays(parseISO(startDate), 2), "yyyy-MM-dd");
+    const dbEnd   = format(addDays(parseISO(endDate), 1), "yyyy-MM-dd");
 
     const snapshots = await prisma.apiSnapshot.findMany({
       where: {
         apiRegistryId: rankingsRegistry.id,
         teamConfigId,
         capturedAt: {
-          gte: new Date(`${snapStart}T00:00:00`),
-          lte: new Date(`${endDate}T23:59:59`),
+          gte: new Date(`${dbStart}T00:00:00Z`),
+          lte: new Date(`${dbEnd}T23:59:59Z`),
         },
       },
       orderBy: { capturedAt: "asc" },
@@ -188,7 +189,7 @@ export async function GET(req: NextRequest) {
       });
 
       calculatedFromSnapshots = true;
-      dataSource = "cache";
+      dataSource = "snapshots";
       const latestSnapshot = snapshots[snapshots.length - 1];
       cachedAt = latestSnapshot.capturedAt.toISOString();
     }

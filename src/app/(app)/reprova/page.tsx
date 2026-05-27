@@ -49,7 +49,7 @@ interface ApiResponse {
   teamKpi: TeamKpi;
   chartData: ChartPoint[];
   dailyBreakdown: ChartPoint[];
-  dataSource: "live" | "cache";
+  dataSource: "live" | "cache" | "snapshots";
   cachedAt?: string;
   reprovaMeta?: ReprovaMeta;
 }
@@ -197,6 +197,21 @@ export default function ReprovaPage() {
             <strong>Dados do cache</strong> — API CardsFlow indisponível.
             {data.cachedAt && ` Última captura: ${new Date(data.cachedAt).toLocaleString("pt-BR")}.`}
             {" "}Os números podem não refletir o período exato selecionado.
+          </span>
+        </div>
+      )}
+
+      {data?.dataSource === "snapshots" && (
+        <div style={{
+          background: "#EFF6FF", border: "1px solid #BFDBFE",
+          borderRadius: 10, padding: "10px 16px",
+          display: "flex", alignItems: "center", gap: 10,
+          fontSize: 12, color: "#1E40AF",
+        }}>
+          <Clock size={13} />
+          <span>
+            <strong>Dados do histórico local</strong> — Calculados com base em capturas periódicas do CardsFlow.
+            {data.cachedAt && ` Última captura do período: ${new Date(data.cachedAt).toLocaleString("pt-BR")}.`}
           </span>
         </div>
       )}
