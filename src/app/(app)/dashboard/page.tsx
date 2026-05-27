@@ -155,13 +155,17 @@ export default function DashboardPage() {
     const keys = "total_cards_abertos,eventos_pendentes,sla_em_risco,resolvidos_hoje,demanda_diaria_serie,current_tasks_by_member";
     const qMetrics = `?keys=${keys}&teamId=${selectedTeam.id}`;
     const q = `?teamConfigId=${selectedTeam.id}&startDate=${startDate}&endDate=${endDate}`;
+    // Reprova no dashboard é widget de alerta — usa janela fixa de 30 dias (não o filtro de data)
+    const today30 = new Date().toISOString().slice(0, 10);
+    const start30 = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+    const qReprova = `?teamConfigId=${selectedTeam.id}&startDate=${start30}&endDate=${today30}`;
     const safe = (url: string) => fetch(url).then((r) => r.json()).catch(() => null);
 
     Promise.all([
       safe(`/api/radar/metrics${qMetrics}`),
       safe(`/api/current-tasks${q}`),
       safe(`/api/demand-chart${q}`),
-      safe(`/api/reprova${q}`),
+      safe(`/api/reprova${qReprova}`),
     ]).then(([metricsRes, tasksRes, demandRes, reprovaRes]) => {
       if (metricsRes?.metrics) {
         const list = metricsRes.metrics as any[];
