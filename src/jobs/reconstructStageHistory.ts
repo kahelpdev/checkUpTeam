@@ -30,12 +30,32 @@ export interface StageTransition {
   snapshotId: string;
   teamConfigId: string;
   enteredAtReportedBySource?: Date | null;
+  // Populated only on "open" transitions that are stage changes (not first sighting)
+  previousStage?: string;
+  userId?: string;
+  userName?: string;
+  eventTitle?: string | null;
 }
 
 interface OpenRow {
   eventId: string;
   stage: string;
   enteredAt: Date;
+}
+
+// Stage "Reprovado" é o evento de reprova neste CardsFlow.
+// Fallback: keywords genéricos para instalações com nomes diferentes.
+const REPROVA_EXACT = ["reprovado", "reprovada", "reproved", "rejected"];
+const REPROVA_KEYWORDS = ["reprov", "rejected", "reject", "reprob"];
+
+export function isReprovaStage(stage: string): boolean {
+  const s = stage.toLowerCase().trim();
+  return REPROVA_EXACT.some((k) => s === k) || REPROVA_KEYWORDS.some((k) => s.includes(k));
+}
+
+// Mantido para compatibilidade com testes existentes
+export function isQAToDevRollback(fromStage: string, toStage: string): boolean {
+  return isReprovaStage(toStage);
 }
 
 /**
@@ -87,6 +107,11 @@ export function detectTransitions(
           snapshotId: snap.snapshotId,
           teamConfigId: snap.teamConfigId,
           enteredAtReportedBySource: reportedDate,
+          // Stage change context — used for reprova detection
+          previousStage: cur.stage,
+          userId: m.userId,
+          userName: m.userName,
+          eventTitle: m.eventTitle,
         });
         open.set(m.eventId, { eventId: m.eventId, stage: m.currentStage, enteredAt: snap.capturedAt });
       }
@@ -115,10 +140,11 @@ export function detectTransitions(
  * Job A — incremental e idempotente.
  * Lê snapshots de /devbi/current-tasks desde o último captured_at já processado,
  * aplica detectTransitions e grava em fact_event_stage_history.
+ * Detecta rollbacks QA→Dev e grava em detected_reprovas.
  */
-export async function runReconstructStageHistory(): Promise<{ processedSnapshots: number; openedRows: number; closedRows: number }> {
+export async function runReconstructStageHistory(): Promise<{ processedSnapshots: number; openedRows: number; closedRows: number; detectedReprovas: number }> {
   const registry = await prisma.apiRegistry.findFirst({ where: { path: "/devbi/current-tasks" } });
-  if (!registry) return { processedSnapshots: 0, openedRows: 0, closedRows: 0 };
+  if (!registry) return { processedSnapshots: 0, openedRows: 0, closedRows: 0, detectedReprovas: 0 };
 
   // Estado inicial: linhas abertas no fact
   const openRowsDb = await prisma.factEventStageHistory.findMany({ where: { exitedAt: null } });
@@ -136,6 +162,7 @@ export async function runReconstructStageHistory(): Promise<{ processedSnapshots
   let processedSnapshots = 0;
   let opened = 0;
   let closed = 0;
+  let reprovasDetected = 0;
 
   while (true) {
     const snapsRaw = await prisma.apiSnapshot.findMany({
@@ -179,6 +206,38 @@ export async function runReconstructStageHistory(): Promise<{ processedSnapshots
           });
           initialOpen.set(t.eventId, { eventId: t.eventId, stage: t.stage, enteredAt: t.at });
           opened++;
+
+          // Detecta entrada no stage Reprovado (= reprova interna)
+          if (
+            t.userId &&
+            t.userName &&
+            isReprovaStage(t.stage)
+          ) {
+            // Resolve teamConfigId real (ignora "_global")
+            const teamConfigId = t.teamConfigId !== "_global" ? t.teamConfigId : null;
+            if (teamConfigId) {
+              try {
+                await prisma.detectedReprova.upsert({
+                  where: { eventId_sourceSnapshotId: { eventId: t.eventId, sourceSnapshotId: t.snapshotId } },
+                  create: {
+                    eventId: t.eventId,
+                    eventTitle: t.eventTitle ?? null,
+                    teamConfigId,
+                    userId: t.userId,
+                    userName: t.userName,
+                    fromStage: t.previousStage ?? "unknown",
+                    toStage: t.stage,
+                    detectedAt: t.at,
+                    sourceSnapshotId: t.snapshotId,
+                  },
+                  update: {},
+                });
+                reprovasDetected++;
+              } catch {
+                // Ignora conflito de unique — snapshot já processado
+              }
+            }
+          }
         } else {
           const row = await prisma.factEventStageHistory.findFirst({
             where: { eventId: t.eventId, stage: t.stage, exitedAt: null },
@@ -202,5 +261,5 @@ export async function runReconstructStageHistory(): Promise<{ processedSnapshots
     processedSnapshots += snapsRaw.length;
   }
 
-  return { processedSnapshots, openedRows: opened, closedRows: closed };
+  return { processedSnapshots, openedRows: opened, closedRows: closed, detectedReprovas: reprovasDetected };
 }
