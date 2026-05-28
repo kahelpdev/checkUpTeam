@@ -170,6 +170,20 @@ export async function GET(req: NextRequest) {
     ? Math.round(((totalSubmissions - totalRejections) / totalSubmissions) * 1000) / 10
     : null;
 
+  // ── 2.5. Calcula reprovas CF no período a partir dos deltas do dailyBreakdown ──
+  const periodRejectionsByMember: Record<string, number> = {};
+  for (const row of dailyBreakdown) {
+    for (const [name, val] of Object.entries(row)) {
+      if (name === "date") continue;
+      periodRejectionsByMember[name] = (periodRejectionsByMember[name] ?? 0) + (Number(val) || 0);
+    }
+  }
+  const membersWithPeriod = members.map((m) => ({
+    ...m,
+    periodRejections: periodRejectionsByMember[m.userName] ?? 0,
+  }));
+  const totalPeriodRejections = membersWithPeriod.reduce((s, m) => s + m.periodRejections, 0);
+
   // ── 3. Reprovas internas detectadas por movimentação de estágio ─────────────
   // Busca com buffer UTC e filtra por data local (UTC-3)
   const detectedRaw = await prisma.detectedReprova.findMany({
@@ -236,12 +250,13 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({
-    members,
+    members: membersWithPeriod,
     teamKpi: {
       totalSubmissions,
       totalRejections,
       teamHitRate,
       alertCount: members.filter((m) => m.qaStatus === "Alerta Comport.").length,
+      periodRejections: totalPeriodRejections,
     },
     chartData,
     dailyBreakdown,

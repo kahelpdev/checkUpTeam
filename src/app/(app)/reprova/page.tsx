@@ -6,7 +6,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { AlertTriangle, Download, Users, Clock, GitBranch } from "lucide-react";
+import { AlertTriangle, Download, Users, Clock, GitBranch, Info } from "lucide-react";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
@@ -19,6 +19,7 @@ interface Member {
   qaRejections: number;
   qaHitRate: number | null;
   qaStatus: string | null;
+  periodRejections?: number;
 }
 
 interface TeamKpi {
@@ -26,6 +27,7 @@ interface TeamKpi {
   totalRejections: number;
   teamHitRate: number | null;
   alertCount: number;
+  periodRejections?: number;
 }
 
 interface ChartPoint {
@@ -61,14 +63,14 @@ interface ApiResponse {
   reprovaMeta?: ReprovaMeta;
 }
 
-type SortKey = "qaRejections" | "qaSubmissions" | "qaHitRate" | "qaStatus";
+type SortKey = "periodRejections" | "qaSubmissions" | "qaHitRate" | "qaStatus";
 
 const COLORS = ["#242873", "#78BFA5", "#E8A020", "#DC3545", "#8A8FAF", "#F2DFBB"];
 
 function exportCsv(members: Member[], detectedByMember: Record<string, number>) {
-  const header = ["Nome", "Submissões", "Aprovações", "Reprovas (CardsFlow)", "Reprovas Internas", "Taxa Aprovação (%)", "Status"];
+  const header = ["Nome", "Submissões", "Aprovações", "Reprovas CF (período)", "Reprovas Internas", "Taxa Aprovação (%)", "Status"];
   const rows = members.map((m) => [
-    m.userName, m.qaSubmissions, m.qaApprovals, m.qaRejections,
+    m.userName, m.qaSubmissions, m.qaApprovals, m.periodRejections ?? 0,
     detectedByMember[m.userName] ?? 0,
     m.qaHitRate ?? "", m.qaStatus ?? "",
   ]);
@@ -119,7 +121,7 @@ export default function ReprovaPage() {
   const { selectedTeam, teams, selectTeam, selectedId, startDate, endDate, setStartDate, setEndDate, setToday, loading: teamLoading } = useFilters();
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("qaRejections");
+  const [sortKey, setSortKey] = useState<SortKey>("periodRejections");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [onlyAlerts, setOnlyAlerts] = useState(false);
 
@@ -227,6 +229,22 @@ export default function ReprovaPage() {
         </div>
       )}
 
+      {/* Aviso de limitação histórica das Reprovas Internas */}
+      {startDate < "2026-05-27" && (
+        <div style={{
+          background: "#EFF6FF", border: "1px solid #BFDBFE",
+          borderRadius: 10, padding: "10px 16px",
+          display: "flex", alignItems: "center", gap: 10,
+          fontSize: 12, color: "#1E40AF",
+        }}>
+          <Info size={13} />
+          <span>
+            <strong>Reprovas Internas</strong> disponíveis a partir de 27/05/2026.
+            {" "}Dados antes dessa data não foram retroativamente processados — a coluna "Internas" estará zerada para esse intervalo.
+          </span>
+        </div>
+      )}
+
       {/* KPIs */}
       {data?.teamKpi && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
@@ -240,9 +258,16 @@ export default function ReprovaPage() {
             )}
           </div>
 
-          <div style={{ position: "relative" }}>
-            <KpiCard label="Reprovas (CardsFlow)" value={data.teamKpi.totalRejections}
-              icon={<AlertTriangle size={16} color="#DC3545" />} accent="danger" />
+          <div
+            style={{ position: "relative" }}
+            title="Reprovas novas registradas no CardsFlow dentro do período selecionado. Calculado a partir dos deltas diários — disponível apenas quando há snapshots no período."
+          >
+            <KpiCard
+              label="Reprovas CF (período)"
+              value={data.dataSource === "snapshots" ? (data.teamKpi.periodRejections ?? 0) : "—"}
+              icon={<AlertTriangle size={16} color="#DC3545" />}
+              accent="danger"
+            />
             {!loading && meta?.qaRejectionsWeek && (
               <div style={{ position: "absolute", top: 10, right: 10 }}>
                 <ReliabilityIndicator status={meta.qaRejectionsWeek.status} incidentId={meta.qaRejectionsWeek.incidentId} />
@@ -250,12 +275,17 @@ export default function ReprovaPage() {
             )}
           </div>
 
-          <KpiCard
-            label="Reprovas Internas"
-            value={detectedReprovas?.total ?? "—"}
-            icon={<GitBranch size={16} color="#7C3AED" />}
-            accent="navy"
-          />
+          <div
+            style={{ cursor: "help" }}
+            title="Reprovas detectadas por movimentação de estágio 'Reprovado' dentro do período. Disponíveis a partir de 27/05/2026."
+          >
+            <KpiCard
+              label="Reprovas Internas"
+              value={detectedReprovas?.total ?? "—"}
+              icon={<GitBranch size={16} color="#7C3AED" />}
+              accent="navy"
+            />
+          </div>
 
           <div style={{ position: "relative" }}>
             <KpiCard label="Alertas Ativos" value={data.teamKpi.alertCount}
@@ -308,17 +338,21 @@ export default function ReprovaPage() {
           <thead>
             <tr style={{ background: "var(--bg)" }}>
               <th style={{ padding: "10px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Desenvolvedor</th>
-              {(["qaRejections", "qaSubmissions", "qaHitRate", "qaStatus"] as SortKey[]).map((k) => (
+              {(["periodRejections", "qaSubmissions", "qaHitRate", "qaStatus"] as SortKey[]).map((k) => (
                 <th
                   key={k}
                   onClick={() => handleSort(k)}
+                  title={k === "periodRejections" ? "Reprovas novas no período via CardsFlow (soma dos deltas diários)" : undefined}
                   style={{ padding: "10px 16px", textAlign: "right", fontSize: 11, fontWeight: 700, color: sortKey === k ? "var(--navy)" : "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", cursor: "pointer" }}
                 >
-                  {{ qaRejections: "Reprovas CF", qaSubmissions: "Submissões", qaHitRate: "Aprovação %", qaStatus: "Status" }[k]}
+                  {{ periodRejections: "Reprovas CF", qaSubmissions: "Submissões", qaHitRate: "Aprovação %", qaStatus: "Status" }[k]}
                   {sortKey === k && (sortDir === "desc" ? " ↓" : " ↑")}
                 </th>
               ))}
-              <th style={{ padding: "10px 16px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              <th
+                title="Detectadas por movimentação de estágio 'Reprovado' (disponíveis desde 27/05/2026)"
+                style={{ padding: "10px 16px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", cursor: "help" }}
+              >
                 Internas
               </th>
             </tr>
@@ -343,7 +377,9 @@ export default function ReprovaPage() {
                       <span style={{ fontWeight: 600, color: "var(--navy)" }}>{m.userName}</span>
                     </div>
                   </td>
-                  <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: "var(--danger)" }}>{m.qaRejections}</td>
+                  <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: data?.dataSource === "snapshots" && (m.periodRejections ?? 0) > 0 ? "var(--danger)" : "var(--muted)" }}>
+                    {data?.dataSource === "snapshots" ? (m.periodRejections ?? 0) : "—"}
+                  </td>
                   <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--muted)" }}>{m.qaSubmissions}</td>
                   <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--muted)" }}>{m.qaHitRate !== null ? `${m.qaHitRate}%` : "—"}</td>
                   <td style={{ padding: "10px 16px", textAlign: "right" }}>
@@ -359,8 +395,8 @@ export default function ReprovaPage() {
         </table>
         {/* Legenda */}
         <div style={{ padding: "8px 20px", borderTop: "1px solid var(--border)", background: "var(--bg)", fontSize: 10, color: "var(--muted)", display: "flex", gap: 20 }}>
-          <span><strong>Reprovas CF</strong> = registradas pelo CardsFlow (qaRejections)</span>
-          <span><strong style={{ color: "#7C3AED" }}>Internas</strong> = detectadas por movimentação de estágio QA→Dev</span>
+          <span><strong>Reprovas CF</strong> = novas reprovas no período via CardsFlow (soma dos deltas diários)</span>
+          <span><strong style={{ color: "#7C3AED" }}>Internas</strong> = detectadas por movimentação de estágio (desde 27/05/2026)</span>
         </div>
       </div>
 
@@ -368,7 +404,7 @@ export default function ReprovaPage() {
       {chartData.length > 0 && (
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 20, boxShadow: "0 1px 4px rgba(36,40,115,0.05)" }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)", marginBottom: 4 }}>Evolução de Reprovas por Desenvolvedor</p>
-          <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 16 }}>Acumulado no período (90 dias de janela)</p>
+          <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 16 }}>Valores acumulados — total histórico por desenvolvedor (não filtrado por período)</p>
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#EDE8DE" />
