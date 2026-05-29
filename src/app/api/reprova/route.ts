@@ -10,6 +10,15 @@ interface ReprovaByDev extends QueryResultRow {
 interface DeliveryByDev extends QueryResultRow { user_id: string; entregas: string }
 interface DailyRow extends QueryResultRow { dia: Date | string; user_name: string; reprovacoes: string }
 interface MonthlyRow extends QueryResultRow { mes: string; user_name: string; reprovacoes: string }
+interface EventRow extends QueryResultRow {
+  event_id: string;
+  event_title: string | null;
+  reproduced_at: Date | string;
+  user_id: string;
+  user_name: string;
+  from_stage: string | null;
+  to_stage: string;
+}
 
 // In-memory cache per (teamId, startDate, endDate) — 5 min TTL
 const cache = new Map<string, { data: unknown; ts: number }>();
@@ -38,7 +47,7 @@ export async function GET(req: NextRequest) {
 
   const teamId = teamConfig.teamId;
 
-  const [reprovaByDev, deliveriesByDev, dailyRows, monthlyRows] = await Promise.all([
+  const [reprovaByDev, deliveriesByDev, dailyRows, monthlyRows, eventRows] = await Promise.all([
     // Reprovas por dev no período (via event_stage_logs, code DevRep)
     queryNsscard<ReprovaByDev>(`
       SELECT u.id AS user_id, u.name AS user_name,
@@ -97,6 +106,27 @@ export async function GET(req: NextRequest) {
       GROUP BY DATE_TRUNC('month', esl.entered_at AT TIME ZONE 'America/Sao_Paulo'), u.id, u.name
       ORDER BY mes
     `, [teamId]),
+
+    // Eventos individuais reprovados no período (detalhe por linha)
+    queryNsscard<EventRow>(`
+      SELECT sce.id AS event_id,
+             sce.title AS event_title,
+             (esl.entered_at AT TIME ZONE 'America/Sao_Paulo') AS reproduced_at,
+             u.id AS user_id,
+             u.name AS user_name,
+             ws_from.name AS from_stage,
+             ws_to.name AS to_stage
+      FROM event_stage_logs esl
+      JOIN workflow_stages ws_to ON ws_to.id = esl.to_stage_id
+      LEFT JOIN workflow_stages ws_from ON ws_from.id = esl.from_stage_id
+      JOIN support_card_events sce ON sce.id = esl.support_card_event_id
+      JOIN users u ON u.id = esl.user_id
+      WHERE ws_to.code = 'DevRep'
+        AND sce.team_id = $1
+        AND (esl.entered_at AT TIME ZONE 'America/Sao_Paulo')::date >= $2::date
+        AND (esl.entered_at AT TIME ZONE 'America/Sao_Paulo')::date <= $3::date
+      ORDER BY esl.entered_at DESC
+    `, [teamId, startDate, endDate]),
   ]);
 
   // Mapa de entregas por user_id
@@ -169,11 +199,47 @@ export async function GET(req: NextRequest) {
     incidentId: incMap.get(key) ?? null,
   });
 
+  // Normaliza lista de eventos individuais
+  const events = eventRows.map((r) => ({
+    eventId:      r.event_id,
+    eventTitle:   r.event_title ?? `#${r.event_id.slice(0, 8)}`,
+    reproducedAt: r.reproduced_at instanceof Date
+      ? r.reproduced_at.toISOString()
+      : String(r.reproduced_at),
+    userId:    r.user_id,
+    userName:  r.user_name,
+    fromStage: r.from_stage,
+    toStage:   r.to_stage,
+  }));
+
+  const dataLineage = {
+    source:   "PostgreSQL nsscard — acesso direto (read-only)",
+    host:     "50.0.0.1:5432",
+    database: "nsscard",
+    table:    "event_stage_logs",
+    filter:   `ws.code = 'DevRep' AND sce.team_id = '${teamId}' AND período ${startDate} → ${endDate}`,
+    timezone: "America/Sao_Paulo",
+    cache:    "5 minutos in-memory por (teamId, startDate, endDate)",
+    query: `SELECT u.id, u.name, COUNT(*) AS reprovacoes
+FROM event_stage_logs esl
+JOIN workflow_stages ws ON ws.id = esl.to_stage_id
+JOIN support_card_events sce ON sce.id = esl.support_card_event_id
+JOIN users u ON u.id = esl.user_id
+WHERE ws.code = 'DevRep'
+  AND sce.team_id = '<teamId>'
+  AND (esl.entered_at AT TIME ZONE 'America/Sao_Paulo')::date
+        BETWEEN '<startDate>' AND '<endDate>'
+GROUP BY u.id, u.name
+ORDER BY reprovacoes DESC`,
+  };
+
   const responseData = {
     members,
     teamKpi,
     dailyBreakdown,
     monthlyTrend,
+    events,
+    dataLineage,
     dataSource: "db" as const,
     reprovaMeta: {
       devReprova:       trustMeta("dev_reprova_summary"),

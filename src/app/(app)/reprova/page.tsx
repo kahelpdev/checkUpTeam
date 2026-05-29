@@ -6,7 +6,10 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { AlertTriangle, Download, Users, TrendingDown, CheckCircle } from "lucide-react";
+import {
+  AlertTriangle, Download, Users, TrendingDown, CheckCircle,
+  ChevronRight, Info, X, FileText, Database, Clock, Filter,
+} from "lucide-react";
 import { KpiCard } from "@/components/ui/KpiCard";
 
 interface Member {
@@ -16,6 +19,16 @@ interface Member {
   entregas: number;
   taxaReprovaPct: number | null;
   diasComReprova: number;
+}
+
+interface ReprovaEvent {
+  eventId: string;
+  eventTitle: string;
+  reproducedAt: string;
+  userId: string;
+  userName: string;
+  fromStage: string | null;
+  toStage: string;
 }
 
 interface TeamKpi {
@@ -40,10 +53,15 @@ interface TrustEntry {
   incidentId: string | null;
 }
 
-interface ReprovaMeta {
-  devReprova:       TrustEntry;
-  alertComport:     TrustEntry;
-  qaRejectionsWeek: TrustEntry;
+interface DataLineage {
+  source: string;
+  host: string;
+  database: string;
+  table: string;
+  filter: string;
+  timezone: string;
+  cache: string;
+  query: string;
 }
 
 interface ApiResponse {
@@ -51,8 +69,14 @@ interface ApiResponse {
   teamKpi: TeamKpi;
   dailyBreakdown: ChartPoint[];
   monthlyTrend: MonthPoint[];
+  events: ReprovaEvent[];
+  dataLineage: DataLineage;
   dataSource: "db";
-  reprovaMeta?: ReprovaMeta;
+  reprovaMeta?: {
+    devReprova:       TrustEntry;
+    alertComport:     TrustEntry;
+    qaRejectionsWeek: TrustEntry;
+  };
 }
 
 type SortKey = "reprovacoes" | "entregas" | "taxaReprovaPct" | "diasComReprova";
@@ -100,6 +124,87 @@ function TrustDot({ status, incidentId }: { status: TrustEntry["status"]; incide
   );
 }
 
+function DataLineageModal({ lineage, onClose }: { lineage: DataLineage; onClose: () => void }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--surface)", borderRadius: 14, width: "100%", maxWidth: 600,
+          boxShadow: "0 8px 40px rgba(36,40,115,0.18)", overflow: "hidden",
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "16px 20px", borderBottom: "1px solid var(--border)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Info size={16} color="var(--navy)" />
+            <span style={{ fontWeight: 700, fontSize: 14, color: "var(--navy)" }}>
+              Como os dados são calculados
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "var(--muted)" }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 16 }}>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {[
+              { icon: <Database size={13} />, label: "Fonte", value: lineage.source },
+              { icon: <Database size={13} />, label: "Host", value: lineage.host },
+              { icon: <FileText size={13} />, label: "Banco", value: lineage.database },
+              { icon: <FileText size={13} />, label: "Tabela principal", value: lineage.table },
+              { icon: <Filter size={13} />, label: "Filtros aplicados", value: lineage.filter },
+              { icon: <Clock size={13} />, label: "Fuso horário", value: lineage.timezone },
+              { icon: <Clock size={13} />, label: "Cache", value: lineage.cache },
+            ].map(({ icon, label, value }) => (
+              <div key={label} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <span style={{ color: "var(--muted)", marginTop: 1, flexShrink: 0 }}>{icon}</span>
+                <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0, minWidth: 140, fontWeight: 600 }}>
+                  {label}
+                </span>
+                <span style={{ fontSize: 12, color: "var(--navy)" }}>{value}</span>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>
+              Query utilizada (simplificada)
+            </p>
+            <pre style={{
+              background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8,
+              padding: "12px 14px", fontSize: 11, color: "var(--navy)",
+              overflowX: "auto", lineHeight: 1.6, margin: 0,
+              fontFamily: "ui-monospace, 'Cascadia Code', monospace",
+            }}>
+              {lineage.query}
+            </pre>
+          </div>
+
+          <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>
+            Acesso read-only — nenhuma alteração é feita no banco CardsFlow.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ReprovaPage() {
   const {
     selectedTeam, teams, selectTeam, selectedId,
@@ -107,10 +212,12 @@ export default function ReprovaPage() {
     loading: teamLoading,
   } = useFilters();
 
-  const [data, setData]     = useState<ApiResponse | null>(null);
+  const [data, setData]       = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("reprovacoes");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [expandedDevs, setExpandedDevs] = useState<Set<string>>(new Set());
+  const [showLineage, setShowLineage]   = useState(false);
 
   const fetchData = useCallback(() => {
     if (!selectedTeam) return;
@@ -124,9 +231,21 @@ export default function ReprovaPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Fecha expansão ao mudar filtros
+  useEffect(() => { setExpandedDevs(new Set()); }, [selectedTeam, startDate, endDate]);
+
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortKey(key); setSortDir("desc"); }
+  };
+
+  const toggleDev = (userId: string) => {
+    setExpandedDevs((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
   };
 
   const sorted = [...(data?.members ?? [])].sort((a, b) => {
@@ -139,7 +258,13 @@ export default function ReprovaPage() {
   const monthlyTrend   = data?.monthlyTrend   ?? [];
   const meta = data?.reprovaMeta;
 
-  // Nomes de devs presentes nos dados diários/mensais (para gráficos)
+  // Agrupar eventos por userId para as linhas expandíveis
+  const eventsByDev = new Map<string, ReprovaEvent[]>();
+  for (const ev of data?.events ?? []) {
+    if (!eventsByDev.has(ev.userId)) eventsByDev.set(ev.userId, []);
+    eventsByDev.get(ev.userId)!.push(ev);
+  }
+
   const dailyDevs = dailyBreakdown.length > 0
     ? Object.keys(dailyBreakdown[0]).filter((k) => k !== "date")
     : (data?.members ?? []).map((m) => m.userName);
@@ -155,6 +280,10 @@ export default function ReprovaPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {showLineage && data?.dataLineage && (
+        <DataLineageModal lineage={data.dataLineage} onClose={() => setShowLineage(false)} />
+      )}
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
@@ -239,7 +368,7 @@ export default function ReprovaPage() {
         </div>
       )}
 
-      {/* Tabela por dev */}
+      {/* Tabela por dev — com linhas expandíveis */}
       <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 4px rgba(36,40,115,0.05)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -248,15 +377,32 @@ export default function ReprovaPage() {
               <TrustDot status={meta.devReprova.status} incidentId={meta.devReprova.incidentId} />
             )}
           </div>
-          <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>
-            Fonte: banco CardsFlow — stage DevRep — somente leitura
-          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>
+              Clique em uma linha para ver os eventos
+            </p>
+            <button
+              onClick={() => setShowLineage(true)}
+              title="Como os dados são calculados"
+              style={{
+                display: "flex", alignItems: "center", gap: 4, background: "none",
+                border: "1px solid var(--border)", borderRadius: 6,
+                padding: "4px 8px", cursor: "pointer", color: "var(--muted)",
+                fontSize: 11, fontWeight: 600, transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--navy)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--navy)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "var(--muted)"; (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)"; }}
+            >
+              <Info size={12} /> Como é calculado
+            </button>
+          </div>
         </div>
 
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ background: "var(--bg)" }}>
-              <th style={{ padding: "10px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              <th style={{ padding: "10px 20px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px", width: 32 }} />
+              <th style={{ padding: "10px 8px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                 Desenvolvedor
               </th>
               {(["reprovacoes", "entregas", "taxaReprovaPct", "diasComReprova"] as SortKey[]).map((k) => (
@@ -277,42 +423,124 @@ export default function ReprovaPage() {
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={5} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>Carregando...</td></tr>
+              <tr><td colSpan={6} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>Carregando...</td></tr>
             )}
             {!loading && sorted.length === 0 && (
-              <tr><td colSpan={5} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>Sem reprovas no período.</td></tr>
+              <tr><td colSpan={6} style={{ padding: 32, textAlign: "center", color: "var(--muted)" }}>Sem reprovas no período.</td></tr>
             )}
-            {sorted.map((m) => (
-              <tr key={m.userId} style={{ borderTop: "1px solid var(--border)" }}>
-                <td style={{ padding: "10px 20px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--navy)", color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      {m.userName.charAt(0)}
-                    </div>
-                    <span style={{ fontWeight: 600, color: "var(--navy)" }}>{m.userName}</span>
-                  </div>
-                </td>
-                <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: m.reprovacoes > 0 ? "var(--danger)" : "var(--muted)" }}>
-                  {m.reprovacoes}
-                </td>
-                <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--muted)" }}>
-                  {m.entregas}
-                </td>
-                <td style={{ padding: "10px 16px", textAlign: "right" }}>
-                  {m.taxaReprovaPct !== null ? (
-                    <span style={{
-                      fontWeight: 700,
-                      color: m.taxaReprovaPct > 20 ? "var(--danger)" : m.taxaReprovaPct > 10 ? "#E8A020" : "#16a34a",
-                    }}>
-                      {m.taxaReprovaPct}%
-                    </span>
-                  ) : "—"}
-                </td>
-                <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--muted)" }}>
-                  {m.diasComReprova}
-                </td>
-              </tr>
-            ))}
+            {sorted.map((m) => {
+              const isExpanded = expandedDevs.has(m.userId);
+              const devEvents  = eventsByDev.get(m.userId) ?? [];
+              return (
+                <>
+                  <tr
+                    key={m.userId}
+                    onClick={() => toggleDev(m.userId)}
+                    style={{
+                      borderTop: "1px solid var(--border)", cursor: "pointer",
+                      background: isExpanded ? "var(--bg)" : "transparent",
+                      transition: "background 0.1s",
+                    }}
+                    onMouseEnter={(e) => { if (!isExpanded) (e.currentTarget as HTMLTableRowElement).style.background = "var(--bg)"; }}
+                    onMouseLeave={(e) => { if (!isExpanded) (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
+                  >
+                    <td style={{ padding: "10px 20px", width: 32 }}>
+                      <ChevronRight
+                        size={14}
+                        color="var(--muted)"
+                        style={{
+                          transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
+                          transition: "transform 0.2s",
+                          display: "block",
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: "10px 8px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--navy)", color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          {m.userName.charAt(0)}
+                        </div>
+                        <span style={{ fontWeight: 600, color: "var(--navy)" }}>{m.userName}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 700, color: "var(--danger)" }}>
+                      {m.reprovacoes}
+                    </td>
+                    <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--muted)" }}>
+                      {m.entregas}
+                    </td>
+                    <td style={{ padding: "10px 16px", textAlign: "right" }}>
+                      {m.taxaReprovaPct !== null ? (
+                        <span style={{
+                          fontWeight: 700,
+                          color: m.taxaReprovaPct > 20 ? "var(--danger)" : m.taxaReprovaPct > 10 ? "#E8A020" : "#16a34a",
+                        }}>
+                          {m.taxaReprovaPct}%
+                        </span>
+                      ) : "—"}
+                    </td>
+                    <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--muted)" }}>
+                      {m.diasComReprova}
+                    </td>
+                  </tr>
+
+                  {/* Linha expandida — eventos do dev */}
+                  {isExpanded && (
+                    <tr key={`${m.userId}-events`} style={{ background: "#F8F9FF" }}>
+                      <td colSpan={6} style={{ padding: "0 0 0 52px", borderTop: "none" }}>
+                        <div style={{ padding: "12px 20px 12px 0" }}>
+                          {devEvents.length === 0 ? (
+                            <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>Sem detalhes disponíveis.</p>
+                          ) : (
+                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                              <thead>
+                                <tr>
+                                  <th style={{ padding: "6px 12px 6px 0", textAlign: "left", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.4px", fontSize: 10 }}>Evento</th>
+                                  <th style={{ padding: "6px 12px", textAlign: "left", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.4px", fontSize: 10 }}>Título</th>
+                                  <th style={{ padding: "6px 12px", textAlign: "left", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.4px", fontSize: 10 }}>Data/Hora</th>
+                                  <th style={{ padding: "6px 12px", textAlign: "left", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.4px", fontSize: 10 }}>De → Para</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {devEvents.map((ev) => {
+                                  const dt = new Date(ev.reproducedAt);
+                                  const dateStr = dt.toLocaleDateString("pt-BR");
+                                  const timeStr = dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+                                  return (
+                                    <tr key={`${ev.eventId}-${ev.reproducedAt}`} style={{ borderTop: "1px solid #E8EAF6" }}>
+                                      <td style={{ padding: "7px 12px 7px 0", fontFamily: "ui-monospace,monospace", fontSize: 10, color: "var(--muted)" }}>
+                                        #{ev.eventId.slice(0, 8)}
+                                      </td>
+                                      <td style={{ padding: "7px 12px", fontWeight: 600, color: "var(--navy)", maxWidth: 260 }}>
+                                        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={ev.eventTitle}>
+                                          {ev.eventTitle}
+                                        </span>
+                                      </td>
+                                      <td style={{ padding: "7px 12px", color: "var(--secondary)", whiteSpace: "nowrap" }}>
+                                        {dateStr} {timeStr}
+                                      </td>
+                                      <td style={{ padding: "7px 12px" }}>
+                                        <span style={{ fontSize: 10, color: "var(--muted)" }}>
+                                          {ev.fromStage ?? "—"}
+                                        </span>
+                                        {" → "}
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: "var(--danger)" }}>
+                                          {ev.toStage}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              );
+            })}
           </tbody>
         </table>
         <div style={{ padding: "8px 20px", borderTop: "1px solid var(--border)", background: "var(--bg)", fontSize: 10, color: "var(--muted)", display: "flex", gap: 20 }}>
